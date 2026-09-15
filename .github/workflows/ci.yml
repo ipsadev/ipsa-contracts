@@ -1,0 +1,121 @@
+name: ci
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        description: "cargo package to check (-p NAME); empty = whole workspace"
+        type: string
+        default: ""
+      targets:
+        description: "extra rustup targets, e.g. wasm32v1-none"
+        type: string
+        default: ""
+      working-directory:
+        description: "directory to run cargo in (for separate workspaces)"
+        type: string
+        default: "."
+      build:
+        description: "optional build command to run before fmt/lint/test (e.g. produce contract wasm the tests import)"
+        type: string
+        default: ""
+      audit:
+        description: "run cargo audit against the lockfile"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ inputs.package || inputs.working-directory || 'workspace' }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: ${{ inputs.package || inputs.working-directory || 'workspace' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory || '.' }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup rust
+        uses: dtolnay/rust-toolchain@1.91.1
+        with:
+          components: rustfmt, clippy
+          targets: ${{ inputs.targets }}
+
+      - name: cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ inputs.working-directory || '.' }}
+
+      - name: install protoc
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y protobuf-compiler
+
+      - name: resolve cargo scope
+        id: scope
+        run: |
+          if [ -z "${{ inputs.package }}" ]; then
+            echo "fmt=--all" >> "$GITHUB_OUTPUT"
+            echo "pkg=--workspace" >> "$GITHUB_OUTPUT"
+          else
+            echo "fmt=-p ${{ inputs.package }}" >> "$GITHUB_OUTPUT"
+            echo "pkg=-p ${{ inputs.package }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: cache cargo-audit binary
+        if: ${{ inputs.audit && !inputs.package }}
+        id: cache-cargo-audit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-cargo-audit-latest-2
+
+      - name: install cargo-audit
+        if: ${{ inputs.audit && !inputs.package && steps.cache-cargo-audit.outputs.cache-hit != 'true' }}
+        run: cargo install cargo-audit --locked
+
+      - name: audit rust dependencies
+        if: ${{ inputs.audit && !inputs.package }}
+        run: >
+          cargo audit --file Cargo.lock
+          --ignore RUSTSEC-2026-0104
+          --ignore RUSTSEC-2026-0098
+          --ignore RUSTSEC-2026-0099
+          --ignore RUSTSEC-2026-0049
+          --ignore RUSTSEC-2026-0009
+          --ignore RUSTSEC-2026-0258
+
+      - name: install stellar cli
+        uses: stellar/stellar-cli@v27.0.0
+        with:
+          version: '27.0.0'
+
+      - name: build
+        if: ${{ inputs.build != '' }}
+        run: ${{ inputs.build }}
+
+      - name: check formatting
+        run: cargo fmt ${{ steps.scope.outputs.fmt }} -- --check
+
+      - name: lint
+        run: >
+          cargo clippy --locked ${{ steps.scope.outputs.pkg }} --all-targets --
+          -D warnings
+          -A clippy::manual_is_multiple_of
+          -A clippy::too_many_arguments
+          -A clippy::result_large_err
+
+      - name: test
+        run: cargo test --locked ${{ steps.scope.outputs.pkg }}

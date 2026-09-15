@@ -1,9 +1,7 @@
 #![cfg(test)]
 
 mod account_contract {
-    soroban_sdk::contractimport!(
-        file = "../target/wasm32v1-none/contract/stellar_gmp_account.wasm"
-    );
+    soroban_sdk::contractimport!(file = "../target/wasm32v1-none/contract/ipsa_gmp_account.wasm");
 }
 
 use soroban_sdk::testutils::Address as _;
