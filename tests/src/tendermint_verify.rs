@@ -1,0 +1,516 @@
+use prost::Message;
+use soroban_sdk::{Bytes, Env};
+use stellar_tendermint_light_client::verify::{validator_set_hash, verify_commit};
+use tendermint_testgen::validator::generate_validators;
+use tendermint_testgen::Validator as TgValidator;
+
+fn build_set(specs: &[(&str, u64)]) -> tendermint::validator::Set {
+    let tg: std::vec::Vec<TgValidator> = specs
+        .iter()
+        .map(|(name, power)| TgValidator::new(name).voting_power(*power))
+        .collect();
+    let infos = generate_validators(&tg).unwrap();
+
+    tendermint::validator::Set::new(infos, None)
+}
+
+#[test]
+fn validator_set_hash_matches_tendermint() {
+    let env = Env::default();
+
+    let set = build_set(&[("a", 10), ("b", 20), ("c", 30)]);
+    let expected = set.hash();
+
+    let raw = tendermint_proto::types::ValidatorSet::from(set);
+    let bytes = raw.encode_to_vec();
+
+    let got = validator_set_hash(&env, &Bytes::from_slice(&env, &bytes)).unwrap();
+
+    assert_eq!(&got[..], expected.as_bytes());
+}
+
+#[test]
+fn validator_set_hash_matches_for_single_validator() {
+    let env = Env::default();
+
+    let set = build_set(&[("solo", 100)]);
+    let expected = set.hash();
+
+    let raw = tendermint_proto::types::ValidatorSet::from(set);
+    let bytes = raw.encode_to_vec();
+
+    let got = validator_set_hash(&env, &Bytes::from_slice(&env, &bytes)).unwrap();
+
+    assert_eq!(&got[..], expected.as_bytes());
+}
+
+#[test]
+fn validator_set_hash_matches_for_seven_validators() {
+    let env = Env::default();
+
+    let set = build_set(&[
+        ("v1", 1),
+        ("v2", 2),
+        ("v3", 3),
+        ("v4", 4),
+        ("v5", 5),
+        ("v6", 6),
+        ("v7", 7),
+    ]);
+    let expected = set.hash();
+
+    let raw = tendermint_proto::types::ValidatorSet::from(set);
+    let bytes = raw.encode_to_vec();
+
+    let got = validator_set_hash(&env, &Bytes::from_slice(&env, &bytes)).unwrap();
+
+    assert_eq!(&got[..], expected.as_bytes());
+}
+
+fn gen_light_block(height: u64) -> tendermint::block::signed_header::SignedHeader {
+    use tendermint_testgen::Generator;
+    let lb = tendermint_testgen::LightBlock::new_default(height);
+    lb.generate().unwrap().signed_header
+}
+
+#[test]
+fn header_hash_matches_tendermint() {
+    let env = Env::default();
+    let sh = gen_light_block(5);
+    let expected = sh.header.hash();
+
+    let raw = tendermint_proto::types::Header::from(sh.header.clone());
+    let bytes = raw.encode_to_vec();
+
+    let got = stellar_tendermint_light_client::verify::header_hash(
+        &env,
+        &Bytes::from_slice(&env, &bytes),
+    );
+
+    assert_eq!(&got[..], expected.as_bytes());
+    assert_eq!(sh.commit.block_id.hash.as_bytes(), expected.as_bytes());
+}
+
+#[test]
+fn header_hash_matches_with_last_block_id_present() {
+    let env = Env::default();
+    let mut sh = gen_light_block(6);
+    let bid = tendermint::block::Id {
+        hash: tendermint::Hash::Sha256([7u8; 32]),
+        part_set_header: tendermint::block::parts::Header::new(
+            1,
+            tendermint::Hash::Sha256([8u8; 32]),
+        )
+        .unwrap(),
+    };
+    sh.header.last_block_id = Some(bid);
+    let expected = sh.header.hash();
+
+    let raw = tendermint_proto::types::Header::from(sh.header.clone());
+    let bytes = raw.encode_to_vec();
+
+    let got = stellar_tendermint_light_client::verify::header_hash(
+        &env,
+        &Bytes::from_slice(&env, &bytes),
+    );
+
+    assert_eq!(&got[..], expected.as_bytes());
+}
+
+fn gen_full(
+    height: u64,
+) -> (
+    tendermint::block::signed_header::SignedHeader,
+    tendermint::validator::Set,
+) {
+    use tendermint_testgen::Generator;
+    let lb = tendermint_testgen::LightBlock::new_default(height)
+        .generate()
+        .unwrap();
+
+    (lb.signed_header, lb.validators)
+}
+
+#[test]
+fn commit_verifies_against_testgen() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+
+    let sh_bytes = tendermint_proto::types::SignedHeader::from(sh).encode_to_vec();
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+
+    assert!(stellar_tendermint_light_client::verify::verify_commit(
+        &env,
+        &Bytes::from_slice(&env, &sh_bytes),
+        &Bytes::from_slice(&env, &vs_bytes),
+        2,
+        3,
+    ));
+}
+
+#[test]
+#[should_panic]
+fn commit_rejects_tampered_signature() {
+    let env = Env::default();
+    let (mut sh, vals) = gen_full(5);
+
+    let mut sig = sh.commit.signatures[0].clone();
+    if let tendermint::block::CommitSig::BlockIdFlagCommit {
+        signature: Some(s), ..
+    } = &sig
+    {
+        let mut raw = s.clone().into_bytes();
+        raw[0] ^= 0xff;
+        if let tendermint::block::CommitSig::BlockIdFlagCommit { signature, .. } = &mut sig {
+            *signature = Some(tendermint::Signature::try_from(raw).unwrap());
+        }
+    }
+    sh.commit.signatures[0] = sig;
+
+    let sh_bytes = tendermint_proto::types::SignedHeader::from(sh).encode_to_vec();
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+
+    stellar_tendermint_light_client::verify::verify_commit(
+        &env,
+        &Bytes::from_slice(&env, &sh_bytes),
+        &Bytes::from_slice(&env, &vs_bytes),
+        2,
+        3,
+    );
+}
+
+fn hash32(h: &tendermint::Hash) -> [u8; 32] {
+    h.as_bytes().try_into().unwrap()
+}
+
+fn setup_client(
+    env: &Env,
+    sh: &tendermint::block::signed_header::SignedHeader,
+    trusted_height: u64,
+    chain_id: &str,
+    trusted_next: [u8; 32],
+) -> (
+    stellar_tendermint_light_client::TendermintLightClientClient<'static>,
+    soroban_sdk::String,
+) {
+    use soroban_sdk::xdr::ToXdr;
+    use soroban_sdk::{BytesN, String};
+    use stellar_tendermint_light_client::{
+        Height, TendermintClientState, TendermintConsensusState, TendermintLightClient,
+        TendermintLightClientClient, TrustThreshold,
+    };
+
+    let addr = env.register(TendermintLightClient, ());
+    let client = TendermintLightClientClient::new(env, &addr);
+    let client_id = String::from_str(env, "07-tendermint-0");
+
+    let cs = TendermintClientState {
+        chain_id: String::from_str(env, chain_id),
+        trust_level: TrustThreshold {
+            numerator: 1,
+            denominator: 3,
+        },
+        trusting_period_secs: 1_000_000_000,
+        unbonding_period_secs: 2_000_000_000,
+        max_clock_drift_secs: 10,
+        latest_height: Height {
+            revision_number: 0,
+            revision_height: trusted_height,
+        },
+        is_frozen: false,
+        frozen_height: Height {
+            revision_number: 0,
+            revision_height: 0,
+        },
+        proof_specs: Bytes::new(env),
+    };
+    let cons = TendermintConsensusState {
+        timestamp_secs: 1,
+        next_validators_hash: BytesN::from_array(env, &trusted_next),
+        root: BytesN::from_array(env, &[0u8; 32]),
+    };
+
+    let _ = sh;
+    client.initialise(
+        &client_id,
+        &cs.to_xdr(env),
+        &cons.to_xdr(env),
+        &trusted_height,
+    );
+
+    (client, client_id)
+}
+
+fn build_update_msg(
+    env: &Env,
+    sh: &tendermint::block::signed_header::SignedHeader,
+    vs_bytes: &[u8],
+    trusted_height: u64,
+) -> Bytes {
+    use soroban_sdk::xdr::ToXdr;
+    use soroban_sdk::BytesN;
+    use stellar_tendermint_light_client::{Height, TendermintHeader};
+
+    let sh_bytes = tendermint_proto::types::SignedHeader::from(sh.clone()).encode_to_vec();
+    let header = TendermintHeader {
+        trusted_height: Height {
+            revision_number: 0,
+            revision_height: trusted_height,
+        },
+        target_height: Height {
+            revision_number: 0,
+            revision_height: sh.header.height.value(),
+        },
+        timestamp_secs: 0,
+        next_validators_hash: BytesN::from_array(env, &[0u8; 32]),
+        app_hash: BytesN::from_array(env, &[0u8; 32]),
+        signed_header_bytes: Bytes::from_slice(env, &sh_bytes),
+        validator_set_bytes: Bytes::from_slice(env, vs_bytes),
+    };
+
+    header.to_xdr(env)
+}
+
+#[test]
+fn verify_client_message_accepts_valid_header() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), trusted_next);
+    let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
+
+    let (_root, height) = client.verify_client_message(&cid, &msg);
+    assert_eq!(height, 5);
+
+    assert_eq!(client.update_state(&cid, &msg), 5);
+}
+
+#[test]
+#[should_panic]
+fn verify_client_message_rejects_wrong_chain_id() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh, 4, "wrong-chain", trusted_next);
+    let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
+
+    client.verify_client_message(&cid, &msg);
+}
+
+#[test]
+#[should_panic]
+fn verify_client_message_rejects_broken_adjacency() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+
+    let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), [0u8; 32]);
+    let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
+
+    client.verify_client_message(&cid, &msg);
+}
+
+fn from_hex(env: &Env, s: &str) -> Bytes {
+    let raw: std::vec::Vec<u8> = (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect();
+
+    Bytes::from_slice(env, &raw)
+}
+
+#[test]
+fn verify_commit_accepts_real_round0_precommit() {
+    let env = Env::default();
+
+    let signed_header = from_hex(&env, "0a8e030a02080b120673696d642d3118c5b105220c08cae9e0d20610b7c0e998032a480a201a269a71a4413f30b77c0895b8be8b88f3f992300d852024ca3dd746b568afe1122408011220280d8aba9270e0b0c24d65c47f2b2b9926d42c4d4fafc78d950605b51b5003993220a2541d5d98c99b84b2719df8283335927e54f0f2f218a22f96fb247e55e4fbd73a20c35c4e5715ec03af22c491739a205c8bb139f0eaa716be2aa7e703ff0104b8e042208a4a2ad1ca2cfc6796a0d1e705500b0c9a0d43183372495942f83885c57efc624a208a4a2ad1ca2cfc6796a0d1e705500b0c9a0d43183372495942f83885c57efc625220048091bc7ddc283f77bfbf91d73c44da58c3df8a9cbc867405d8b7f3daada22f5a20c95b72540b3a2dccbbab1b278a8510c88b854d346aa246ba69fed71c60053faf6220e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8556a20e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85572145f8c49826543da4cdda21511843a790e27e6a4ff12b80108c5b1051a480a201b5d5042355ec94d735ee8abbb4b4a4c9c0cdd02c32b68223bcd375328588a3d1224080112201ff0ca2ec1459c2a44a7cbe658a0d6f46efaa660231eec916b9f39c3916d5ccf2268080212145f8c49826543da4cdda21511843a790e27e6a4ff1a0c08cfe9e0d20610928ca99f032240ce9a24135fa2561f035d68be276910517853c9e144cc5696dc43f508b866ab964fabd6028954e1e40b8c97fcadde32fba277f6f4a2d95908ff35474cb7bdc603");
+    let validator_set = from_hex(&env, "0a3e0a145f8c49826543da4cdda21511843a790e27e6a4ff12220a206126d8cc7e37041e28ec09b72ae96c195043552f6cfb07904327b1c67302bccc18a08d06123e0a145f8c49826543da4cdda21511843a790e27e6a4ff12220a206126d8cc7e37041e28ec09b72ae96c195043552f6cfb07904327b1c67302bccc18a08d0618a08d06");
+
+    assert!(verify_commit(&env, &signed_header, &validator_set, 2, 3));
+}
+
+fn forged_update_msg(
+    env: &Env,
+    sh: &tendermint::block::signed_header::SignedHeader,
+    vs_bytes: &[u8],
+    trusted_height: u64,
+    app_hash: [u8; 32],
+) -> Bytes {
+    use soroban_sdk::xdr::ToXdr;
+    use soroban_sdk::BytesN;
+    use stellar_tendermint_light_client::{Height, TendermintHeader};
+
+    let mut sh = sh.clone();
+    for sig in sh.commit.signatures.iter_mut() {
+        if let tendermint::block::CommitSig::BlockIdFlagCommit {
+            signature: Some(s), ..
+        } = sig
+        {
+            let mut raw = s.clone().into_bytes();
+            raw[0] ^= 0xff;
+            *s = tendermint::Signature::try_from(raw).unwrap();
+        }
+    }
+
+    let sh_bytes = tendermint_proto::types::SignedHeader::from(sh.clone()).encode_to_vec();
+    let header = TendermintHeader {
+        trusted_height: Height {
+            revision_number: 0,
+            revision_height: trusted_height,
+        },
+        target_height: Height {
+            revision_number: 0,
+            revision_height: sh.header.height.value(),
+        },
+        timestamp_secs: 0,
+        next_validators_hash: BytesN::from_array(env, &[0u8; 32]),
+        app_hash: BytesN::from_array(env, &app_hash),
+        signed_header_bytes: Bytes::from_slice(env, &sh_bytes),
+        validator_set_bytes: Bytes::from_slice(env, vs_bytes),
+    };
+
+    header.to_xdr(env)
+}
+
+#[test]
+#[should_panic(expected = "Error(Crypto, InvalidInput)")]
+fn misbehaviour_rejects_a_header_no_validator_signed() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), trusted_next);
+    client.update_state(&cid, &build_update_msg(&env, &sh, &vs_bytes, 4));
+
+    let forged = forged_update_msg(&env, &sh, &vs_bytes, 4, [0xAA; 32]);
+    client.check_for_misbehaviour(&cid, &forged);
+}
+
+#[test]
+fn misbehaviour_reports_a_signed_header_that_contradicts_stored_state() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), trusted_next);
+    let honest = build_update_msg(&env, &sh, &vs_bytes, 4);
+    client.update_state(&cid, &honest);
+
+    assert!(
+        !client.check_for_misbehaviour(&cid, &honest),
+        "a header agreeing with stored state is not misbehaviour"
+    );
+}
+fn with_one_absent_vote(
+    sh: &tendermint::block::signed_header::SignedHeader,
+) -> tendermint::block::signed_header::SignedHeader {
+    let mut sh = sh.clone();
+    sh.commit.signatures[1] = tendermint::block::CommitSig::BlockIdFlagAbsent;
+    sh
+}
+
+#[test]
+fn commit_skips_an_absent_vote_instead_of_trapping() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let sh = with_one_absent_vote(&sh);
+
+    let sh_bytes = tendermint_proto::types::SignedHeader::from(sh).encode_to_vec();
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+
+    assert!(
+        stellar_tendermint_light_client::verify::verify_commit(
+            &env,
+            &Bytes::from_slice(&env, &sh_bytes),
+            &Bytes::from_slice(&env, &vs_bytes),
+            1,
+            3,
+        ),
+        "an absent vote must not abort verification of an otherwise valid commit"
+    );
+}
+
+#[test]
+fn an_absent_vote_contributes_no_voting_power() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let sh = with_one_absent_vote(&sh);
+
+    let sh_bytes = tendermint_proto::types::SignedHeader::from(sh).encode_to_vec();
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+
+    assert!(
+        !stellar_tendermint_light_client::verify::verify_commit(
+            &env,
+            &Bytes::from_slice(&env, &sh_bytes),
+            &Bytes::from_slice(&env, &vs_bytes),
+            2,
+            3,
+        ),
+        "half the power cannot satisfy a two-thirds threshold"
+    );
+}
+
+#[test]
+fn a_historical_update_does_not_move_the_latest_height_backwards() {
+    let env = Env::default();
+    let (sh_new, vals) = gen_full(7);
+    let (sh_old, _) = gen_full(5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh_new.header.validators_hash);
+
+    let (client, cid) = setup_client(
+        &env,
+        &sh_new,
+        4,
+        sh_new.header.chain_id.as_str(),
+        trusted_next,
+    );
+
+    assert_eq!(
+        client.update_state(&cid, &build_update_msg(&env, &sh_new, &vs_bytes, 4)),
+        7
+    );
+    assert_eq!(client.latest_height(&cid), 7);
+
+    assert_eq!(
+        client.update_state(&cid, &build_update_msg(&env, &sh_old, &vs_bytes, 4)),
+        5
+    );
+    assert_eq!(
+        client.latest_height(&cid),
+        7,
+        "a replayed historical header must not lower the latest height"
+    );
+}
+
+#[test]
+fn a_historical_update_still_records_its_consensus_state() {
+    let env = Env::default();
+    let (sh_new, vals) = gen_full(7);
+    let (sh_old, _) = gen_full(5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh_new.header.validators_hash);
+
+    let (client, cid) = setup_client(
+        &env,
+        &sh_new,
+        4,
+        sh_new.header.chain_id.as_str(),
+        trusted_next,
+    );
+    client.update_state(&cid, &build_update_msg(&env, &sh_new, &vs_bytes, 4));
+    client.update_state(&cid, &build_update_msg(&env, &sh_old, &vs_bytes, 4));
+
+    assert!(
+        !client.consensus_state(&cid, &5).is_empty(),
+        "backfilling must keep working — the older state is still stored"
+    );
+    assert!(!client.consensus_state(&cid, &7).is_empty());
+}

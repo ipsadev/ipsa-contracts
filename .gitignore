@@ -1,0 +1,10 @@
+target
+/.idea/
+/.vscode/
+/proptest_regressions/
+.DS_Store
+*.wasm
+log/
+.env
+.env.*
+test_snapshots/

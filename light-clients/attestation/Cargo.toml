@@ -1,0 +1,17 @@
+[package]
+name = "stellar-attestation-light-client"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+ed25519-dalek = "2.0.0"
+rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }

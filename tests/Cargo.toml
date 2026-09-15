@@ -1,0 +1,21 @@
+[package]
+name = "soroban-contracts-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+doctest = false
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+stellar-ibc-router = { path = "../ibc-router" }
+stellar-ibc-transfer = { path = "../ibc-transfer" }
+stellar-mock-light-client = { path = "../light-clients/mock" }
+stellar-tendermint-light-client = { path = "../light-clients/tendermint" }
+ics23 = "0.12"
+prost = "0.13"
+sha2 = "0.10"
+tendermint = "0.40"
+tendermint-proto = "0.40"
+tendermint-testgen = "0.40"

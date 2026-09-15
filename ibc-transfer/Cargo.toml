@@ -1,0 +1,19 @@
+[package]
+name = "stellar-ibc-transfer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellar-access = { workspace = true }
+stellar-macros = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+stellar-ibc-router = { path = "../ibc-router" }
+stellar-mock-light-client = { workspace = true }

@@ -1,0 +1,72 @@
+use soroban_sdk::{contractimpl, panic_with_error, Bytes, Env, String};
+use stellar_macros::only_admin;
+
+use crate::assets::refund;
+use crate::encoding::{decode_packet, is_success_ack, string_to_address, SUCCESS_ACK_BYTE};
+use crate::errors::Error;
+use crate::types::{
+    OnAcknowledgementPacketCallback, OnRecvPacketCallback, OnTimeoutPacketCallback,
+};
+use crate::{IbcTransferApp, IbcTransferAppArgs, IbcTransferAppClient, PORT};
+
+pub trait Ics04 {
+    fn on_recv_packet(env: Env, callback: OnRecvPacketCallback) -> Bytes;
+
+    fn on_acknowledgement_packet(env: Env, callback: OnAcknowledgementPacketCallback);
+
+    fn on_timeout_packet(env: Env, callback: OnTimeoutPacketCallback);
+}
+
+#[contractimpl]
+impl Ics04 for IbcTransferApp {
+    #[only_admin]
+    fn on_recv_packet(env: Env, callback: OnRecvPacketCallback) -> Bytes {
+        let port = String::from_str(&env, PORT);
+
+        if callback.payload.dest_port != port {
+            panic_with_error!(&env, Error::UnknownDestPort);
+        }
+
+        let packet = decode_packet(&env, &callback.payload.value);
+        let receiver_addr = string_to_address(&env, &packet.receiver);
+
+        crate::voucher::credit(
+            &env,
+            &packet.token.denom,
+            &receiver_addr,
+            packet.token.amount,
+        );
+
+        Bytes::from_slice(&env, &[SUCCESS_ACK_BYTE])
+    }
+
+    #[only_admin]
+    fn on_acknowledgement_packet(env: Env, callback: OnAcknowledgementPacketCallback) {
+        let port = String::from_str(&env, PORT);
+
+        if callback.payload.source_port != port {
+            panic_with_error!(&env, Error::UnknownSourcePort);
+        }
+
+        if is_success_ack(&callback.acknowledgement) {
+            return;
+        }
+
+        let packet = decode_packet(&env, &callback.payload.value);
+
+        refund(&env, &packet);
+    }
+
+    #[only_admin]
+    fn on_timeout_packet(env: Env, callback: OnTimeoutPacketCallback) {
+        let port = String::from_str(&env, PORT);
+
+        if callback.payload.source_port != port {
+            panic_with_error!(&env, Error::UnknownSourcePort);
+        }
+
+        let packet = decode_packet(&env, &callback.payload.value);
+
+        refund(&env, &packet);
+    }
+}
