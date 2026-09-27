@@ -4,12 +4,14 @@ use soroban_sdk::{
 use stellar_access::{access_control::set_admin, ownable::set_owner};
 use stellar_macros::only_owner;
 
-use crate::encoding::{address_to_string, encode_ics20_json};
+use crate::encoding::{
+    address_to_string, encode_payload, require_supported_encoding, ENCODING_JSON,
+};
 use crate::errors::Error;
 use crate::limits::enforce_rate_limit;
 use crate::storage::DataKey;
 use crate::types::{FungibleTokenPacketData, Payload, Token};
-use crate::{IbcTransferApp, IbcTransferAppArgs, IbcTransferAppClient, ENCODING, PORT, VERSION};
+use crate::{IbcTransferApp, IbcTransferAppArgs, IbcTransferAppClient, PORT, VERSION};
 
 #[contractimpl]
 impl IbcTransferApp {
@@ -22,6 +24,27 @@ impl IbcTransferApp {
     #[only_owner]
     pub fn set_voucher_wasm(env: Env, wasm_hash: BytesN<32>) {
         crate::voucher::set_voucher_wasm(&env, wasm_hash);
+    }
+
+    #[only_owner]
+    pub fn upgrade(env: Env, wasm_hash: BytesN<32>) {
+        env.deployer().update_current_contract_wasm(wasm_hash);
+    }
+
+    #[only_owner]
+    pub fn set_client_encoding(env: Env, client_id: String, encoding: String) {
+        require_supported_encoding(&env, &encoding);
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::ClientEncoding(client_id), &encoding);
+    }
+
+    pub fn client_encoding(env: Env, client_id: String) -> String {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ClientEncoding(client_id))
+            .unwrap_or_else(|| String::from_str(&env, ENCODING_JSON))
     }
 }
 
@@ -69,14 +92,15 @@ impl Ics20 for IbcTransferApp {
             receiver,
             memo,
         };
-        let value = encode_ics20_json(&env, &packet);
+        let encoding = Self::client_encoding(env.clone(), source_client_id.clone());
+        let value = encode_payload(&env, &encoding, &packet);
 
         let port = String::from_str(&env, PORT);
         let payload = Payload {
             source_port: port.clone(),
             dest_port: port,
             version: String::from_str(&env, VERSION),
-            encoding: String::from_str(&env, ENCODING),
+            encoding,
             value,
         };
 

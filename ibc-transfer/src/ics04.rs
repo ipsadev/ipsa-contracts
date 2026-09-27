@@ -2,8 +2,9 @@ use soroban_sdk::{contractimpl, panic_with_error, Bytes, Env, String};
 use stellar_macros::only_admin;
 
 use crate::assets::refund;
-use crate::encoding::{decode_packet, is_success_ack, string_to_address, SUCCESS_ACK_BYTE};
+use crate::encoding::{decode_payload, is_success_ack, string_to_address, SUCCESS_ACK_BYTE};
 use crate::errors::Error;
+use crate::trace::received_denom;
 use crate::types::{
     OnAcknowledgementPacketCallback, OnRecvPacketCallback, OnTimeoutPacketCallback,
 };
@@ -27,15 +28,19 @@ impl Ics04 for IbcTransferApp {
             panic_with_error!(&env, Error::UnknownDestPort);
         }
 
-        let packet = decode_packet(&env, &callback.payload.value);
+        let packet = decode_payload(&env, &callback.payload.encoding, &callback.payload.value);
         let receiver_addr = string_to_address(&env, &packet.receiver);
 
-        crate::voucher::credit(
+        let denom = received_denom(
             &env,
+            &callback.payload.source_port,
+            &callback.source_client,
+            &callback.payload.dest_port,
+            &callback.dest_client,
             &packet.token.denom,
-            &receiver_addr,
-            packet.token.amount,
         );
+
+        crate::voucher::credit(&env, &denom, &receiver_addr, packet.token.amount);
 
         Bytes::from_slice(&env, &[SUCCESS_ACK_BYTE])
     }
@@ -52,7 +57,7 @@ impl Ics04 for IbcTransferApp {
             return;
         }
 
-        let packet = decode_packet(&env, &callback.payload.value);
+        let packet = decode_payload(&env, &callback.payload.encoding, &callback.payload.value);
 
         refund(&env, &packet);
     }
@@ -65,7 +70,7 @@ impl Ics04 for IbcTransferApp {
             panic_with_error!(&env, Error::UnknownSourcePort);
         }
 
-        let packet = decode_packet(&env, &callback.payload.value);
+        let packet = decode_payload(&env, &callback.payload.encoding, &callback.payload.value);
 
         refund(&env, &packet);
     }

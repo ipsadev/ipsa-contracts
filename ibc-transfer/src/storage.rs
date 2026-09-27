@@ -10,4 +10,5 @@ pub enum DataKey {
     Usage(String, u64),
     VoucherWasmHash,
     Voucher(String),
+    ClientEncoding(String),
 }

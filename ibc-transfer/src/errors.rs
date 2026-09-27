@@ -25,4 +25,5 @@ pub enum Error {
     /// unregistered (foreign) denom cannot be deployed.
     VoucherWasmNotSet = 9,
     TooManyAssets = 10,
+    UnsupportedEncoding = 11,
 }

@@ -31,6 +31,15 @@ fn recv_callback(
     }
 }
 
+fn voucher_denom(f: &common::Fixture, denom: &str) -> String {
+    let mut buf = [0u8; 128];
+    let len = f.source_client_id.len() as usize;
+    f.source_client_id.copy_into_slice(&mut buf[..len]);
+    let client = core::str::from_utf8(&buf[..len]).unwrap();
+
+    String::from_str(&f.env, &format!("transfer/{client}/{denom}"))
+}
+
 #[test]
 fn recv_unregistered_denom_auto_deploys_voucher_and_mints() {
     let f = setup();
@@ -48,7 +57,11 @@ fn recv_unregistered_denom_auto_deploys_voucher_and_mints() {
         .on_recv_packet(&recv_callback(&f, &receiver, &stake, 1_000));
 
     assert_eq!(ack, Bytes::from_slice(&f.env, &[SUCCESS_ACK_BYTE]));
-    assert_eq!(f.transfer.balance_of(&receiver, &stake), 1_000);
+    assert_eq!(
+        f.transfer
+            .balance_of(&receiver, &voucher_denom(&f, "stake")),
+        1_000
+    );
 }
 
 #[test]
@@ -68,14 +81,17 @@ fn send_foreign_voucher_burns_it() {
     f.transfer.initiate_transfer(
         &holder,
         &f.source_client_id,
-        &stake,
+        &voucher_denom(&f, "stake"),
         &400,
         &String::from_str(&f.env, "cosmos1abc"),
         &2_000,
         &String::from_str(&f.env, ""),
     );
 
-    assert_eq!(f.transfer.balance_of(&holder, &stake), 600);
+    assert_eq!(
+        f.transfer.balance_of(&holder, &voucher_denom(&f, "stake")),
+        600
+    );
 }
 
 #[test]
@@ -96,6 +112,6 @@ fn recv_reuses_the_same_voucher_across_calls() {
     f.transfer
         .on_recv_packet(&recv_callback(&f, &b, &stake, 700));
 
-    assert_eq!(f.transfer.balance_of(&a, &stake), 300);
-    assert_eq!(f.transfer.balance_of(&b, &stake), 700);
+    assert_eq!(f.transfer.balance_of(&a, &voucher_denom(&f, "stake")), 300);
+    assert_eq!(f.transfer.balance_of(&b, &voucher_denom(&f, "stake")), 700);
 }

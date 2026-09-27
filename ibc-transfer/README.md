@@ -14,18 +14,22 @@ error.
   - `initiate_transfer(sender, source_client_id, denom, amount, receiver, timeout, memo)`
     auths the sender, enforces the per-denom daily rate limit (Phase D.2),
     debits the sender's local balance, credits the app's own escrow address,
-    XDR-encodes a `FungibleTokenPacketData`, packages it into a `Payload`
-    (port=`transfer`, version=`ics20-2`, encoding=`xdr`), and calls
+    encodes a `FungibleTokenPacketData` in the encoding configured for
+    `source_client_id` (see [Encodings](#encodings)), packages it into a
+    `Payload` (port=`transfer`, version=`ics20-1`), and calls
     `router.send_packet` via `env.invoke_contract`. Returns the minted
     sequence.
 - **Inbound (counterparty → user):**
   - `on_recv_packet(callback)` is dispatched by the router; the app decodes
-    the packet data, credits the receiver's local balance, and returns the
-    success ack `[0x01]`.
+    the packet data, resolves the denom through its trace (see
+    [Denom trace](#denom-trace)), credits the receiver, and returns the success
+    ack `[0x01]`.
 - **Ack handling:**
   - `on_acknowledgement_packet(callback)` is dispatched by the router after
     the counterparty's ack arrives. If the ack matches the success sentinel
-    `[0x01]`, no-op. Otherwise refund the sender from escrow.
+    `[0x01]` or starts with `{"result"` (what ibc-go and upstream's
+    `ICS20Transfer.sol` both write), no-op. Otherwise — including EVM's
+    universal error ack — refund the sender from escrow.
 - **Timeout handling:**
   - `on_timeout_packet(callback)` is dispatched by the router when the
     packet times out without delivery; the app refunds the sender from
@@ -35,7 +39,7 @@ error.
 
 | Caller | Calls |
 |---|---|
-| Off-chain admin (deploy) | `__constructor(router, admin)`, `set_rate_limit(denom, daily_cap)` |
+| Off-chain admin (deploy) | `__constructor(router, admin)`, `set_rate_limit(denom, daily_cap)`, `set_client_encoding(client_id, encoding)`, `register_asset(denom, address, voucher)` |
 | Users (wallets, scripts) | `initiate_transfer(...)`, `balance_of(...)`, `daily_cap(...)`, `daily_usage(...)` |
 | Tests / dev seeding | `mint(to, denom, amount)` — `TODO(sac)`: replace with SAC `transfer` once integrated |
 | The router | `on_recv_packet`, `on_acknowledgement_packet`, `on_timeout_packet` — never called by anyone else (router address pins itself via `require_auth`) |
@@ -53,14 +57,80 @@ struct FungibleTokenPacketData {
 }
 ```
 
-The `Payload.value` is the XDR encoding of `FungibleTokenPacketData`.
+## Encodings
 
-## Entrypoints (10)
+`Payload.value` carries `FungibleTokenPacketData` in one of two encodings, and
+the counterparty decides which: a Cosmos chain running ibc-go reads JSON, and
+upstream's `ICS20Transfer.sol` accepts **only** `application/x-solidity-abi`
+and rejects anything else with the universal error ack.
+
+| `Payload.encoding` | Wire form | Counterparty |
+|---|---|---|
+| `application/json` (default) | `{"denom","amount","sender","receiver","memo"}`, amount as a decimal string | ibc-go |
+| `application/x-solidity-abi` | `abi.encode((string denom, string sender, string receiver, uint256 amount, string memo))` | Solidity `ICS20Transfer` |
+
+**Outbound**, the encoding is chosen per client: `set_client_encoding(client_id,
+encoding)` (owner-only, refuses anything not in the table) and
+`client_encoding(client_id)`, which returns JSON for an unconfigured client. It
+is per client rather than per call because the counterparty chain behind a
+client id does not change, and a sender choosing wrongly gets a refund after a
+wasted round trip rather than an error.
+
+**Inbound**, and when an ack or timeout needs the original packet to refund
+from, the payload is decoded by its own `encoding` field, so one app serves both
+kinds of counterparty at once. An unknown encoding panics with
+`UnsupportedEncoding` (11).
+
+The ABI codec is checked byte for byte against `cast abi-encode` in
+`tests/abi_encoding.rs`, and the ABI path through the router — the committed
+packet, a JSON success ack from EVM, EVM's universal error ack and a timeout —
+in `tests/solidity_counterparty.rs`. An amount must fit a positive `i128`; the
+top half of the `uint256` word is refused rather than truncated.
+
+The denom convention for a Stellar asset sent to EVM is its **SAC contract id**
+(`C…`), mirroring upstream's use of the ERC-20 address as the denom for a
+native token. `ICS20Transfer` then mints an `IBCERC20` named
+`transfer/<its client id for Stellar>/<C…>`.
+
+## Denom trace
+
+Standard ICS-20, the same rule upstream's `ICS20Transfer.sol` applies. On
+receive, with the packet's `source_port`/`source_client` and
+`dest_port`/`dest_client`:
+
+| Received denom | Meaning | Credited as |
+|---|---|---|
+| starts with `{source_port}/{source_client}/` | the token is coming home | the rest of the denom — a `Local` asset is released from escrow |
+| anything else | the token is foreign | `{dest_port}/{dest_client}/{denom}` — a voucher, deployed on first receipt |
+
+So an ERC-20 sent from Sepolia arrives as `transfer/sepolia-0/0x39a0…`, and
+sending that voucher back puts the full trace in the packet, which Sepolia strips
+before releasing the ERC-20. A prefix naming another client is foreign, not
+returning, and a prefix with nothing after it is refused. Outbound, the denom is
+sent exactly as held, so a voucher always leaves with its trace.
+
+Before this, the app credited the received denom verbatim: a foreign token became
+a voucher with no trace, which the origin chain would treat as foreign on the way
+back, and a returning token minted a new voucher instead of releasing escrow.
+`tests/denom_trace.rs` covers the rule; the older receive tests were corrected to
+expect traced denoms.
+
+## Upgrading
+
+`upgrade(wasm_hash)` is owner-only and replaces the contract's code in place, the
+way upstream's `ICS20Transfer` is a UUPS proxy. It exists because the router's
+`register_port` never overwrites: without it, fixing the app meant a new router,
+and a new router meant a new light client on the counterparty, whose client state
+pins the router's id. The router itself is still not upgradeable.
+
+## Entrypoints
 
 - `__constructor(router, admin)`
 - `set_rate_limit(denom, daily_cap)` — admin-only
 - `daily_cap(denom) -> Option<i128>` / `daily_usage(denom) -> i128`
 - `mint(to, denom, amount)` / `balance_of(who, denom) -> i128`
+- `set_client_encoding(client_id, encoding)` — owner-only / `client_encoding(client_id) -> String`
+- `set_voucher_wasm(wasm_hash)` / `upgrade(wasm_hash)` — owner-only
 - `initiate_transfer(sender, source_client_id, denom, amount, receiver, timeout_timestamp, memo) -> u64`
 - `on_recv_packet(callback) -> Bytes`
 - `on_acknowledgement_packet(callback)`

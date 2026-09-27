@@ -76,7 +76,8 @@ fn initiate_transfer_rejects_zero_amount() {
 #[test]
 fn recv_packet_mints_voucher_and_returns_success_ack() {
     let f = setup();
-    register_voucher(&f, &xlm(&f.env));
+    let voucher_denom = traced(&f, "transfer", &f.source_client_id, "XLM");
+    register_voucher(&f, &voucher_denom);
     let receiver = Address::generate(&f.env);
 
     let packet = stellar_ibc_router::Packet {
@@ -100,7 +101,7 @@ fn recv_packet_mints_voucher_and_returns_success_ack() {
     f.router
         .recv_packet(&packet, &Bytes::from_slice(&f.env, b"proof"), &10);
 
-    assert_eq!(f.transfer.balance_of(&receiver, &xlm(&f.env)), 500);
+    assert_eq!(f.transfer.balance_of(&receiver, &voucher_denom), 500);
     assert!(f.router.acknowledgement(&f.source_client_id, &1).is_some());
 }
 
@@ -123,7 +124,13 @@ fn recv_packet_releases_escrow_for_returning_native_asset() {
                 dest_port: String::from_str(&f.env, "transfer"),
                 version: String::from_str(&f.env, "ics20-1"),
                 encoding: String::from_str(&f.env, ENCODING),
-                value: build_inbound_packet(&f.env, "cosmos1abc", &receiver, &xlm(&f.env), 300i128),
+                value: build_inbound_packet(
+                    &f.env,
+                    "cosmos1abc",
+                    &receiver,
+                    &traced(&f, "transfer", &f.counterparty_client_id, "XLM"),
+                    300i128,
+                ),
             },
         ],
     };
@@ -295,4 +302,13 @@ fn timeout_packet_refunds_sender() {
 
     assert_eq!(f.transfer.balance_of(&sender, &xlm(&f.env)), 1_000);
     assert_eq!(f.transfer.balance_of(&f.transfer_addr, &xlm(&f.env)), 0);
+}
+
+fn traced(f: &common::Fixture, port: &str, client: &String, denom: &str) -> String {
+    let mut buf = [0u8; 128];
+    let len = client.len() as usize;
+    client.copy_into_slice(&mut buf[..len]);
+    let client = core::str::from_utf8(&buf[..len]).unwrap();
+
+    String::from_str(&f.env, &format!("{port}/{client}/{denom}"))
 }

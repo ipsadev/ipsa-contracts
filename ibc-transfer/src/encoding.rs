@@ -5,6 +5,10 @@ use crate::types::{FungibleTokenPacketData, Token};
 
 pub(crate) const SUCCESS_ACK_BYTE: u8 = 0x01;
 
+pub const ENCODING_JSON: &str = "application/json";
+
+pub const ENCODING_SOLIDITY_ABI: &str = "application/x-solidity-abi";
+
 const MAX_PACKET_BYTES: usize = 4096;
 
 pub fn decode_packet(env: &Env, value: &Bytes) -> FungibleTokenPacketData {
@@ -283,4 +287,172 @@ fn hex_to_nibble(env: &Env, c: u8) -> u8 {
         b'A'..=b'F' => c - b'A' + 10,
         _ => panic_with_error!(env, Error::InvalidPacketData),
     }
+}
+
+const ABI_WORD: usize = 32;
+
+const ABI_HEAD_WORDS: usize = 5;
+
+pub fn decode_payload(env: &Env, encoding: &String, value: &Bytes) -> FungibleTokenPacketData {
+    if *encoding == String::from_str(env, ENCODING_JSON) {
+        return decode_packet(env, value);
+    }
+
+    if *encoding == String::from_str(env, ENCODING_SOLIDITY_ABI) {
+        return decode_packet_abi(env, value);
+    }
+
+    panic_with_error!(env, Error::UnsupportedEncoding);
+}
+
+pub fn encode_payload(env: &Env, encoding: &String, packet: &FungibleTokenPacketData) -> Bytes {
+    if *encoding == String::from_str(env, ENCODING_JSON) {
+        return encode_ics20_json(env, packet);
+    }
+
+    if *encoding == String::from_str(env, ENCODING_SOLIDITY_ABI) {
+        return encode_ics20_abi(env, packet);
+    }
+
+    panic_with_error!(env, Error::UnsupportedEncoding);
+}
+
+pub(crate) fn require_supported_encoding(env: &Env, encoding: &String) {
+    let supported = *encoding == String::from_str(env, ENCODING_JSON)
+        || *encoding == String::from_str(env, ENCODING_SOLIDITY_ABI);
+
+    if !supported {
+        panic_with_error!(env, Error::UnsupportedEncoding);
+    }
+}
+
+pub fn encode_ics20_abi(env: &Env, packet: &FungibleTokenPacketData) -> Bytes {
+    if packet.token.amount <= 0 {
+        panic_with_error!(env, Error::InvalidPacketData);
+    }
+
+    let strings = [
+        &packet.token.denom,
+        &packet.sender,
+        &packet.receiver,
+        &packet.memo,
+    ];
+
+    let mut offsets = [0usize; 4];
+    let mut tails = Bytes::new(env);
+
+    for (index, field) in strings.iter().enumerate() {
+        offsets[index] = ABI_HEAD_WORDS * ABI_WORD + tails.len() as usize;
+
+        append_abi_string(env, &mut tails, field);
+    }
+
+    let mut out = Bytes::new(env);
+
+    out.append(&abi_word(env, ABI_WORD as u128));
+    out.append(&abi_word(env, offsets[0] as u128));
+    out.append(&abi_word(env, offsets[1] as u128));
+    out.append(&abi_word(env, offsets[2] as u128));
+    out.append(&abi_word(env, packet.token.amount as u128));
+    out.append(&abi_word(env, offsets[3] as u128));
+    out.append(&tails);
+
+    out
+}
+
+pub fn decode_packet_abi(env: &Env, value: &Bytes) -> FungibleTokenPacketData {
+    let len = value.len() as usize;
+
+    if len < (1 + ABI_HEAD_WORDS) * ABI_WORD || len > MAX_PACKET_BYTES {
+        panic_with_error!(env, Error::InvalidPacketData);
+    }
+
+    let mut buf = [0u8; MAX_PACKET_BYTES];
+    value.copy_into_slice(&mut buf[..len]);
+    let src = &buf[..len];
+
+    if read_abi_offset(env, src, 0) != ABI_WORD {
+        panic_with_error!(env, Error::InvalidPacketData);
+    }
+
+    let tuple = &src[ABI_WORD..];
+
+    let denom = read_abi_string(env, tuple, read_abi_offset(env, tuple, 0));
+    let sender = read_abi_string(env, tuple, read_abi_offset(env, tuple, ABI_WORD));
+    let receiver = read_abi_string(env, tuple, read_abi_offset(env, tuple, 2 * ABI_WORD));
+    let amount = read_abi_amount(env, &tuple[3 * ABI_WORD..4 * ABI_WORD]);
+    let memo = read_abi_string(env, tuple, read_abi_offset(env, tuple, 4 * ABI_WORD));
+
+    FungibleTokenPacketData {
+        token: Token { denom, amount },
+        sender,
+        receiver,
+        memo,
+    }
+}
+
+fn abi_word(env: &Env, value: u128) -> Bytes {
+    let mut word = [0u8; ABI_WORD];
+    word[16..].copy_from_slice(&value.to_be_bytes());
+
+    Bytes::from_slice(env, &word)
+}
+
+fn append_abi_string(env: &Env, buf: &mut Bytes, s: &String) {
+    let len = s.len() as usize;
+
+    if len > MAX_FIELD_BYTES {
+        panic_with_error!(env, Error::InvalidPacketData);
+    }
+
+    let mut tmp = [0u8; MAX_FIELD_BYTES];
+    s.copy_into_slice(&mut tmp[..len]);
+
+    let padding = (ABI_WORD - len % ABI_WORD) % ABI_WORD;
+
+    buf.append(&abi_word(env, len as u128));
+    buf.append(&Bytes::from_slice(env, &tmp[..len]));
+    buf.append(&Bytes::from_slice(env, &[0u8; ABI_WORD][..padding]));
+}
+
+fn read_abi_offset(env: &Env, src: &[u8], at: usize) -> usize {
+    if at + ABI_WORD > src.len() {
+        panic_with_error!(env, Error::InvalidPacketData);
+    }
+
+    let word = &src[at..at + ABI_WORD];
+
+    if word[..28].iter().any(|byte| *byte != 0) {
+        panic_with_error!(env, Error::InvalidPacketData);
+    }
+
+    u32::from_be_bytes([word[28], word[29], word[30], word[31]]) as usize
+}
+
+fn read_abi_string(env: &Env, tuple: &[u8], offset: usize) -> String {
+    let len = read_abi_offset(env, tuple, offset);
+    let start = offset + ABI_WORD;
+
+    if len > MAX_FIELD_BYTES || start + len > tuple.len() {
+        panic_with_error!(env, Error::InvalidPacketData);
+    }
+
+    String::from_bytes(env, &tuple[start..start + len])
+}
+
+fn read_abi_amount(env: &Env, word: &[u8]) -> i128 {
+    if word[..16].iter().any(|byte| *byte != 0) || word[16] & 0x80 != 0 {
+        panic_with_error!(env, Error::InvalidPacketData);
+    }
+
+    let mut low = [0u8; 16];
+    low.copy_from_slice(&word[16..]);
+
+    let amount = u128::from_be_bytes(low) as i128;
+
+    if amount <= 0 {
+        panic_with_error!(env, Error::InvalidPacketData);
+    }
+
+    amount
 }
