@@ -220,6 +220,10 @@ jobs:
           invoke "$transfer" set_voucher_wasm --wasm_hash "$voucher_hash"
           invoke "$gmp" set_account_wasm --wasm_hash "$account_hash"
 
+          native="$(stellar contract id asset --asset native)"
+          record "XLM" "asset contract" "$native"
+          invoke "$transfer" register_asset --denom XLM --address "$native" --voucher false
+
           {
             echo "## Deployed to Stellar testnet"
             echo
@@ -229,7 +233,7 @@ jobs:
               echo "| $name | $kind | \`$value\` |"
             done < "$records"
             echo
-            echo "The router registers \`07-tendermint\` and \`sepolia\` as client types, and \`transfer\` and \`gmpport\` as ports."
+            echo "The router registers \`07-tendermint\` and \`sepolia\` as client types, and \`transfer\` and \`gmpport\` as ports. The transfer app registers native XLM under the denom \`XLM\`."
           } > deployment/deployments.md
 
           jq -Rn --arg tag "$TAG" --arg network testnet '
