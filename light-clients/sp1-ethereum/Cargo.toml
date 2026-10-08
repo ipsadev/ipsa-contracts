@@ -1,0 +1,18 @@
+[package]
+name = "stellar-sp1-ethereum-light-client"
+description = "An Ethereum light client for Soroban, backed by an SP1 proof verified over BN254"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellar-sp1-verifier = { path = "../../sp1-verifier" }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
