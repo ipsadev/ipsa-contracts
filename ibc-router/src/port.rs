@@ -1,10 +1,10 @@
 use soroban_sdk::{contractimpl, panic_with_error, Address, Env, String};
 use stellar_macros::only_owner;
 
-use crate::errors::Error;
-use crate::identifiers::validate_port_id;
-use crate::types::DataKey;
-use crate::{IbcRouter, IbcRouterArgs, IbcRouterClient};
+use crate::{
+    errors::Error, identifiers::validate_port_id, types::DataKey, IbcRouter, IbcRouterArgs,
+    IbcRouterClient,
+};
 
 pub trait Port {
     fn register_port(env: &Env, port_id: String, app_address: Address);

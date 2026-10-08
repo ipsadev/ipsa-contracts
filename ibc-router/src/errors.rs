@@ -47,4 +47,6 @@ pub enum Error {
     /// A timeout was requested but the packet's timeout has not yet elapsed.
     TimeoutNotYetElapsed = 22,
     ProvableStoreFull = 23,
+    LightClientNotInitialised = 24,
+    ProvableSlotTaken = 25,
 }

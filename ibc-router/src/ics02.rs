@@ -1,13 +1,15 @@
 use soroban_sdk::{
     contractimpl, panic_with_error, Address, Bytes, Env, IntoVal, String, Symbol, Val, Vec,
 };
-
 use stellar_macros::only_owner;
 
-use crate::errors::Error;
-use crate::identifiers::{validate_client_type, validate_counterparty_client_id};
-use crate::types::{Counterparty, DataKey};
-use crate::{IbcRouter, IbcRouterArgs, IbcRouterClient};
+use crate::{
+    errors::Error,
+    events::ClientMigrated,
+    identifiers::{validate_client_type, validate_counterparty_client_id},
+    types::{Counterparty, DataKey},
+    IbcRouter, IbcRouterArgs, IbcRouterClient,
+};
 
 pub trait Ics02 {
     fn register_client_type(env: &Env, client_type: String, light_client_address: Address);
@@ -34,6 +36,8 @@ pub trait Ics02 {
     fn update_client(env: &Env, client_id: String, client_message: Bytes) -> u64;
 
     fn light_client_address(env: &Env, client_id: String) -> Option<Address>;
+
+    fn migrate_client(env: &Env, client_id: String, light_client_address: Address);
 
     fn frozen(env: &Env, client_id: String) -> bool;
 }
@@ -184,6 +188,42 @@ impl Ics02 for IbcRouter {
         env.storage()
             .persistent()
             .get(&DataKey::LightClient(client_id))
+    }
+
+    #[only_owner]
+    fn migrate_client(env: &Env, client_id: String, light_client_address: Address) {
+        if !env
+            .storage()
+            .persistent()
+            .has(&DataKey::ClientType(client_id.clone()))
+        {
+            panic_with_error!(env, Error::ClientIdNotFound);
+        }
+
+        let args: Vec<Val> = soroban_sdk::vec![env, client_id.clone().into_val(env)];
+        let latest_height: u64 = env.invoke_contract(
+            &light_client_address,
+            &Symbol::new(env, "latest_height"),
+            args,
+        );
+
+        if latest_height == 0 {
+            panic_with_error!(env, Error::LightClientNotInitialised);
+        }
+
+        env.storage().persistent().set(
+            &DataKey::LightClient(client_id.clone()),
+            &light_client_address,
+        );
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Frozen(client_id.clone()));
+
+        ClientMigrated {
+            client_id,
+            light_client: light_client_address,
+        }
+        .publish(env);
     }
 
     fn frozen(env: &Env, client_id: String) -> bool {

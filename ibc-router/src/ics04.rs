@@ -2,18 +2,19 @@ use soroban_sdk::{
     contractimpl, panic_with_error, vec, Address, Bytes, Env, IntoVal, String, Symbol, Vec,
 };
 
-use crate::errors::Error;
-use crate::events::{AckPacket, RecvPacket, SendPacket, TimeoutPacket, WriteAck};
-use crate::ics02::Ics02;
-use crate::ics24::{commit_v2_acknowledgement, commit_v2_packet, error_ack_hash};
-use crate::port::Port;
-use crate::smt;
-use crate::storage;
-use crate::types::{
-    Counterparty, DataKey, OnAcknowledgementPacketCallback, OnRecvPacketCallback,
-    OnTimeoutPacketCallback, Packet, Payload,
+use crate::{
+    errors::Error,
+    events::{AckPacket, RecvPacket, SendPacket, TimeoutPacket, WriteAck},
+    ics02::Ics02,
+    ics24::{commit_v2_acknowledgement, commit_v2_packet, error_ack_hash},
+    port::Port,
+    smt, storage,
+    types::{
+        Counterparty, DataKey, OnAcknowledgementPacketCallback, OnRecvPacketCallback,
+        OnTimeoutPacketCallback, Packet, Payload,
+    },
+    IbcRouter, IbcRouterArgs, IbcRouterClient,
 };
-use crate::{IbcRouter, IbcRouterArgs, IbcRouterClient};
 
 pub trait Ics04 {
     fn send_packet(

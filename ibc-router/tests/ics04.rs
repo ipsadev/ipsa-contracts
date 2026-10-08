@@ -1,86 +1,11 @@
 mod common;
 
-use common::{router_roots, setup};
-use soroban_sdk::testutils::Ledger;
-use soroban_sdk::{contract, contractimpl, vec, Address, Bytes, Env, String};
-use stellar_ibc_router::{
-    Error, IbcRouterClient, OnAcknowledgementPacketCallback, OnRecvPacketCallback,
-    OnTimeoutPacketCallback, Packet, Payload,
+use common::{mk_payload, recv_packet_for, router_roots, setup, setup_packet_flow, EchoApp};
+use soroban_sdk::{
+    testutils::{storage::Persistent as _, Ledger},
+    vec, Bytes, String,
 };
-
-#[contract]
-pub struct EchoApp;
-
-#[contractimpl]
-impl EchoApp {
-    pub fn on_recv_packet(_env: Env, cb: OnRecvPacketCallback) -> Bytes {
-        cb.payload.value
-    }
-    pub fn on_acknowledgement_packet(_env: Env, _cb: OnAcknowledgementPacketCallback) {}
-    pub fn on_timeout_packet(_env: Env, _cb: OnTimeoutPacketCallback) {}
-}
-
-struct PacketFlow {
-    env: Env,
-    router_id: Address,
-    router: IbcRouterClient<'static>,
-    client_id: String,
-    counterparty_client_id: String,
-    port_id: String,
-    #[allow(dead_code)]
-    app: Address,
-}
-
-fn setup_packet_flow() -> PacketFlow {
-    let (env, router_id, router, _lc_id) = setup();
-
-    env.ledger().with_mut(|li| li.timestamp = 1_000);
-
-    let client_id = router.create_client(
-        &String::from_str(&env, "mock"),
-        &Bytes::from_slice(&env, b"cs"),
-        &Bytes::from_slice(&env, b"cons"),
-        &1,
-    );
-    let counterparty_client_id = String::from_str(&env, "07-tendermint-0");
-    let prefix = vec![&env, Bytes::from_slice(&env, b"ibc")];
-    router.register_counterparty(&client_id, &counterparty_client_id, &prefix);
-
-    let app = env.register(EchoApp, ());
-    let port_id = String::from_str(&env, "transfer");
-    router.register_port(&port_id, &app);
-
-    PacketFlow {
-        env,
-        router_id,
-        router,
-        client_id,
-        counterparty_client_id,
-        port_id,
-        app,
-    }
-}
-
-fn mk_payload(env: &Env, port: &String, value: &[u8]) -> Payload {
-    Payload {
-        source_port: port.clone(),
-        dest_port: port.clone(),
-        version: String::from_str(env, "v1"),
-        encoding: String::from_str(env, "json"),
-        value: Bytes::from_slice(env, value),
-    }
-}
-
-fn recv_packet_for(f: &PacketFlow, sequence: u64, value: &[u8]) -> Packet {
-    let payload = mk_payload(&f.env, &f.port_id, value);
-    Packet {
-        sequence,
-        source_client: f.counterparty_client_id.clone(),
-        dest_client: f.client_id.clone(),
-        timeout_timestamp: 2_000,
-        payloads: vec![&f.env, payload],
-    }
-}
+use stellar_ibc_router::{smt::SmtKey, DataKey, Error, Packet};
 
 #[test]
 fn send_packet_mints_sequences_and_stores_commitment() {
@@ -384,9 +309,6 @@ fn a_second_recv_publishes_its_own_root_and_moves_the_tree() {
 
 #[test]
 fn sending_a_packet_extends_the_configuration_it_depends_on() {
-    use soroban_sdk::testutils::storage::Persistent as _;
-    use stellar_ibc_router::DataKey;
-
     let f = setup_packet_flow();
     let counterparty = DataKey::Counterparty(f.client_id.clone());
     let light_client = DataKey::LightClient(f.client_id.clone());
@@ -421,9 +343,6 @@ fn sending_a_packet_extends_the_configuration_it_depends_on() {
 
 #[test]
 fn committing_a_root_extends_the_provable_tree() {
-    use soroban_sdk::testutils::storage::Persistent as _;
-    use stellar_ibc_router::smt::SmtKey;
-
     let f = setup_packet_flow();
     let payload = mk_payload(&f.env, &f.port_id, b"hello");
     f.router

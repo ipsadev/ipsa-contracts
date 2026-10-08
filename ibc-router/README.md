@@ -25,13 +25,13 @@ combined with the `ICS02ClientUpgradeable` (client registry) and
 
 | Caller | Calls |
 |---|---|
-| Off-chain admin (deploy + bootstrap) | `__constructor`, `register_client_type`, `register_counterparty`, `register_port` |
+| Off-chain admin (deploy + bootstrap) | `__constructor`, `register_client_type`, `register_counterparty`, `register_port`, `migrate_client`, `upgrade` |
 | IBC application contracts (e.g. `IbcTransferApp`) | `send_packet` (to mint a sequence + commit) |
 | Relayer (via the gateway's `StellarGatewayMsg`) | `update_client`, `recv_packet`, `acknowledge_packet`, `timeout_packet` |
 | Light-client contracts | Called *by* the router into them — not the reverse |
 | App contracts during recv/ack/timeout dispatch | Called *by* the router into them via `on_recv_packet` / `on_acknowledgement_packet` / `on_timeout_packet` |
 
-## Entrypoints (23)
+## Entrypoints
 
 **Client lifecycle (ICS-02):**
 - `register_client_type(client_type, lc_address)` — admin pins an LC contract
@@ -46,16 +46,46 @@ combined with the `ICS02ClientUpgradeable` (client registry) and
   dispatches to `update_state` or `update_state_on_misbehaviour`.
 - `client_lc_address(client_id) -> Option<Address>`
 - `frozen(client_id) -> bool`
+- `migrate_client(client_id, light_client_address)` — owner-only; ICS-02's
+  `migrateClient`, as the Solidity `ICS26Router` has it. Repoints an existing
+  client id at another light-client contract, which must already be initialised
+  for that id (its `latest_height(client_id)` is non-zero, else
+  `LightClientNotInitialised`), clears the frozen flag, and emits
+  `ClientMigrated`. The counterparty, sequences, commitments, receipts and acks
+  all stay, because they live here and are keyed by the client id.
+
+  Why it exists: every call resolves a client through the address stored for its
+  id at `create_client`, so without it a client that has to be replaced — one
+  frozen by misbehaviour, or an Ethereum client that can no longer cross a sync
+  committee period — takes its id with it. A new id then restarts sequences on
+  this side while the counterparty still holds receipts for the old ones, and the
+  first packets collide.
+
+**Code:**
+- `upgrade(wasm_hash)` — owner-only; replaces this contract's code in place.
 
 **Port router (ICS-05):**
 - `register_port(port_id, app_address)` — app proves it owns itself via
   `require_auth`.
 - `port_app(port_id) -> Option<Address>`
 
-**Provable storage primitives (ICS-24):**
-- `set_packet_commitment` / `packet_commitment` / `delete_packet_commitment`
-- `set_packet_receipt` / `has_packet_receipt`
-- `set_ack_commitment` / `acknowledgement`
+**Provable storage (ICS-24), read-only:**
+- `packet_commitment`
+- `has_packet_receipt`
+- `acknowledgement`
+
+Provable state is written only by the packet lifecycle below. Nothing outside the router can set or
+delete a commitment, receipt or acknowledgement, because the light client on the other chain trusts
+every leaf of the tree.
+
+**State tree:**
+- `ibc_root` returns the current root; `commit_root` republishes it in an `ibc_root` event without
+  changing state, so an idle router can still produce a ledger the light client can bind a root to.
+- Each leaf sits at the first 8 bytes of `sha256(path)`, and the router records the full
+  `sha256(path)` that owns each slot. A write by a different path that lands on an occupied slot
+  fails with `ProvableSlotTaken`, and a removal only clears a slot its own path owns, so a 64-bit
+  collision can neither overwrite nor erase another path's leaf. Leaves written before owners were
+  recorded have no owner until their path writes them again.
 
 **Packet lifecycle (ICS-04 / ICS-26):**
 - `send_packet(source_client_id, timeout_timestamp, payloads) -> sequence`

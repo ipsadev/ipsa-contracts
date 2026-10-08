@@ -1,20 +1,36 @@
 mod common;
 
-use common::{router_roots, setup};
-use soroban_sdk::{BytesN, String};
+use common::{mk_payload, recv_packet_for, router_roots, setup, setup_packet_flow, PacketFlow};
+use soroban_sdk::{vec, Bytes, BytesN};
+use stellar_ibc_router::Packet;
 
 fn zero() -> [u8; 32] {
     [0u8; 32]
 }
 
+fn send(f: &PacketFlow, value: &[u8]) -> Packet {
+    let payload = mk_payload(&f.env, &f.port_id, value);
+    let sequence = f
+        .router
+        .send_packet(&f.client_id, &2_000, &vec![&f.env, payload.clone()]);
+
+    Packet {
+        sequence,
+        source_client: f.client_id.clone(),
+        dest_client: f.counterparty_client_id.clone(),
+        timeout_timestamp: 2_000,
+        payloads: vec![&f.env, payload],
+    }
+}
+
 #[test]
 fn the_root_event_has_the_shape_the_light_client_expects() {
-    let (env, router_id, router, _lc) = setup();
-    let client_id = String::from_str(&env, "10-stellar-0");
+    let f = setup_packet_flow();
 
-    router.set_packet_commitment(&client_id, &7, &BytesN::from_array(&env, &[0xAB; 32]));
+    send(&f, b"hello");
 
-    let roots = router_roots(&env, &router_id);
+    let roots = router_roots(&f.env, &f.router_id);
+
     assert_eq!(roots.len(), 1, "exactly one root event per provable write");
     assert_ne!(
         roots[0],
@@ -25,69 +41,75 @@ fn the_root_event_has_the_shape_the_light_client_expects() {
 
 #[test]
 fn every_provable_write_republishes_the_root() {
-    let (env, router_id, router, _lc) = setup();
-    let client_id = String::from_str(&env, "10-stellar-0");
+    let f = setup_packet_flow();
+    let packet = send(&f, b"hello");
+    let after_commitment = *router_roots(&f.env, &f.router_id).last().unwrap();
 
-    router.set_packet_commitment(&client_id, &1, &BytesN::from_array(&env, &[0x01; 32]));
-    let after_commitment = *router_roots(&env, &router_id).last().unwrap();
+    f.router.recv_packet(
+        &recv_packet_for(&f, 9, b"hello"),
+        &Bytes::from_slice(&f.env, b"proof"),
+        &10,
+    );
+    let after_receipt = *router_roots(&f.env, &f.router_id).last().unwrap();
 
-    router.set_packet_receipt(&client_id, &1);
-    let after_receipt = *router_roots(&env, &router_id).last().unwrap();
     assert_ne!(
         after_commitment, after_receipt,
-        "a receipt is provable state and must move the root"
+        "a receipt and its ack are provable state and must move the root"
     );
 
-    router.set_ack_commitment(&client_id, &1, &BytesN::from_array(&env, &[0x02; 32]));
-    let after_ack = *router_roots(&env, &router_id).last().unwrap();
-    assert_ne!(after_receipt, after_ack, "an ack must move the root");
+    f.router.acknowledge_packet(
+        &packet,
+        &vec![&f.env, Bytes::from_slice(&f.env, b"ack-bytes")],
+        &Bytes::from_slice(&f.env, b"proof"),
+        &10,
+    );
+    let after_acknowledgement = *router_roots(&f.env, &f.router_id).last().unwrap();
+
+    assert_ne!(
+        after_receipt, after_acknowledgement,
+        "clearing a commitment must move the root"
+    );
 }
 
 #[test]
-fn deleting_a_commitment_moves_the_root_back() {
-    let (env, _router_id, router, _lc) = setup();
-    let client_id = String::from_str(&env, "10-stellar-0");
+fn clearing_a_commitment_moves_the_root_back() {
+    let f = setup_packet_flow();
+    let empty = f.router.ibc_root();
+    let packet = send(&f, b"hello");
+    let populated = f.router.ibc_root();
 
-    let empty = router.ibc_root();
-    router.set_packet_commitment(&client_id, &7, &BytesN::from_array(&env, &[0xAB; 32]));
-    let populated = router.ibc_root();
     assert_ne!(empty, populated);
 
-    router.delete_packet_commitment(&client_id, &7);
+    f.router.acknowledge_packet(
+        &packet,
+        &vec![&f.env, Bytes::from_slice(&f.env, b"ack-bytes")],
+        &Bytes::from_slice(&f.env, b"proof"),
+        &10,
+    );
+
     assert_eq!(
-        router.ibc_root(),
+        f.router.ibc_root(),
         empty,
         "removing the only leaf returns to the empty root"
     );
 }
 
 #[test]
-fn deleting_something_absent_still_publishes_one_unchanged_root() {
-    let (env, router_id, router, _lc) = setup();
-    let client_id = String::from_str(&env, "10-stellar-0");
-
-    router.delete_packet_commitment(&client_id, &999);
-
-    let roots = router_roots(&env, &router_id);
-    assert_eq!(roots.len(), 1);
-    assert_eq!(roots[0], zero(), "nothing was removed, so the root stands");
-}
-
-#[test]
 fn commit_root_republishes_without_changing_state() {
-    let (env, router_id, router, _lc) = setup();
-    let client_id = String::from_str(&env, "10-stellar-0");
-    router.set_packet_commitment(&client_id, &7, &BytesN::from_array(&env, &[0xAB; 32]));
+    let f = setup_packet_flow();
 
-    let before = router.ibc_root();
-    let republished = router.commit_root();
+    send(&f, b"hello");
+
+    let before = f.router.ibc_root();
+    let republished = f.router.commit_root();
 
     assert_eq!(
         before, republished,
         "an idle republish must not move the root"
     );
 
-    let roots = router_roots(&env, &router_id);
+    let roots = router_roots(&f.env, &f.router_id);
+
     assert_eq!(roots.len(), 1, "the republish emits exactly one root event");
     assert_eq!(
         roots[0],
@@ -99,22 +121,21 @@ fn commit_root_republishes_without_changing_state() {
 #[test]
 fn an_untouched_router_reports_the_empty_root() {
     let (env, _router_id, router, _lc) = setup();
+
     assert_eq!(router.ibc_root(), BytesN::from_array(&env, &[0u8; 32]));
 }
 
 #[test]
 fn the_root_tracks_the_stored_value() {
-    let (env, _router_id, router, _lc) = setup();
-    let client_id = String::from_str(&env, "10-stellar-0");
+    let first = setup_packet_flow();
+    let second = setup_packet_flow();
 
-    router.set_packet_commitment(&client_id, &7, &BytesN::from_array(&env, &[0xAA; 32]));
-    let first = router.ibc_root();
-
-    router.set_packet_commitment(&client_id, &7, &BytesN::from_array(&env, &[0xBB; 32]));
-    let second = router.ibc_root();
+    send(&first, b"one value");
+    send(&second, b"another value");
 
     assert_ne!(
-        first, second,
-        "overwriting a commitment with a different value must move the root"
+        first.router.ibc_root(),
+        second.router.ibc_root(),
+        "the same path holding a different commitment must give a different root"
     );
 }

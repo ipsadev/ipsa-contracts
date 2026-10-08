@@ -1,8 +1,7 @@
 mod common;
 
 use common::setup;
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, String};
+use soroban_sdk::{testutils::Address as _, Address, String};
 use stellar_ibc_router::Error;
 
 #[test]

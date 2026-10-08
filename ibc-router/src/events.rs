@@ -1,4 +1,4 @@
-use soroban_sdk::{contractevent, Bytes, BytesN, String, Vec};
+use soroban_sdk::{contractevent, Address, Bytes, BytesN, String, Vec};
 
 use crate::types::Packet;
 
@@ -57,4 +57,12 @@ pub struct TimeoutPacket {
 #[derive(Clone)]
 pub struct IbcRoot {
     pub root: BytesN<32>,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ClientMigrated {
+    #[topic]
+    pub client_id: String,
+    pub light_client: Address,
 }

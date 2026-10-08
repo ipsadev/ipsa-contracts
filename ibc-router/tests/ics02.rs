@@ -1,8 +1,7 @@
 mod common;
 
 use common::setup;
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{vec, Bytes, String};
+use soroban_sdk::{testutils::Address as _, vec, Bytes, String};
 use stellar_ibc_router::Error;
 use stellar_mock_light_client::MockLightClientClient;
 
