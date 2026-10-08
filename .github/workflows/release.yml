@@ -1,0 +1,303 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "existing tag to build and release (e.g. v0.1.0); leave empty with dry_run to rehearse the branch this runs from"
+        type: string
+        required: false
+        default: ""
+      dry_run:
+        description: "run the checks and build the wasm with its checksums, but publish nothing"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  checks:
+    name: checks before release
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.tag || github.ref }}
+
+  wasm:
+    name: build contract wasm
+    runs-on: ubuntu-latest
+    needs: [checks]
+    timeout-minutes: 30
+    outputs:
+      tag: ${{ steps.gate.outputs.tag }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: the tag must match the workspace version
+        id: gate
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          version="$(awk '/^\[workspace.package\]/ {inside = 1; next} /^\[/ {inside = 0} inside && /^version/ {gsub(/[" ]/, ""); sub(/^version=/, ""); print; exit}' Cargo.toml)"
+          if [ -z "$TAG" ]; then
+            if [ "$DRY_RUN" != "true" ]; then
+              echo "::error::a release needs a tag; to rehearse without one, run with dry_run"
+              exit 1
+            fi
+            TAG="v$version"
+            echo "::notice::rehearsing $TAG from $GITHUB_REF_NAME, no tag needed"
+          elif [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not match the workspace version $version"
+            exit 1
+          else
+            echo "tag $TAG matches the workspace version $version"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: setup rust
+        uses: dtolnay/rust-toolchain@1.91.1
+        with:
+          targets: wasm32v1-none
+
+      - name: cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: install stellar cli
+        uses: stellar/stellar-cli@v27.0.0
+        with:
+          version: '27.0.0'
+
+      - name: build contracts
+        run: stellar contract build --profile contract
+
+      - name: collect wasm dist
+        run: |
+          mkdir -p dist
+          cp target/wasm32v1-none/contract/*.wasm dist/
+          cd dist
+          sha256sum *.wasm | tee SHA256SUMS
+          ls -la
+
+      - name: upload wasm dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-dist
+          path: dist
+          if-no-files-found: error
+
+      - name: say what a dry run skipped
+        if: ${{ inputs.dry_run == true }}
+        run: echo "::notice::dry run - checks passed and the wasm was built; nothing was published"
+
+  deploy:
+    name: deploy to stellar testnet
+    runs-on: ubuntu-latest
+    needs: [wasm]
+    if: ${{ inputs.dry_run != true }}
+    environment: testnet
+    timeout-minutes: 30
+    outputs:
+      deployed: ${{ steps.deploy.outputs.deployed }}
+    env:
+      STELLAR_NETWORK: testnet
+      STELLAR_ACCOUNT: ${{ secrets.STELLAR_SIGNING_KEY }}
+    steps:
+      - name: a release is deployed once
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.wasm.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::release $TAG already exists; its contracts were deployed when it was published"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: download wasm dist
+        if: ${{ steps.existing.outputs.skip != 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-dist
+          path: dist
+
+      - name: install stellar cli
+        if: ${{ steps.existing.outputs.skip != 'true' }}
+        uses: stellar/stellar-cli@v27.0.0
+        with:
+          version: '27.0.0'
+
+      - name: deploy and wire the contracts
+        id: deploy
+        if: ${{ steps.existing.outputs.skip != 'true' }}
+        env:
+          TAG: ${{ needs.wasm.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$STELLAR_ACCOUNT" ]; then
+            echo "::error::the testnet environment has no STELLAR_SIGNING_KEY secret"
+            exit 1
+          fi
+
+          owner="$(stellar keys address "$STELLAR_ACCOUNT")"
+          genesis="$(stellar ledger latest --output json | jq -r .sequence)"
+
+          mkdir -p deployment
+          records=deployment/records.tsv
+          : > "$records"
+
+          record() {
+            printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$records"
+            echo "$1: $3" >&2
+          }
+
+          deploy() {
+            local name="$1" wasm="$2"
+            shift 2
+
+            local id
+            if [ "$#" -eq 0 ]; then
+              id="$(stellar contract deploy --wasm "dist/$wasm")"
+            else
+              id="$(stellar contract deploy --wasm "dist/$wasm" -- "$@")"
+            fi
+
+            record "$name" "contract" "$id"
+            printf '%s' "$id"
+          }
+
+          upload() {
+            local name="$1" wasm="$2"
+
+            local hash
+            hash="$(stellar contract upload --wasm "dist/$wasm")"
+
+            record "$name" "wasm hash" "$hash"
+            printf '%s' "$hash"
+          }
+
+          invoke() {
+            local id="$1"
+            shift
+
+            stellar contract invoke --id "$id" -- "$@" >/dev/null
+          }
+
+          record "owner" "account" "$owner"
+          record "router genesis ledger" "ledger" "$genesis"
+
+          router="$(deploy "ibc-router" stellar_ibc_router.wasm --owner "$owner")"
+          transfer="$(deploy "ibc-transfer" stellar_ibc_transfer.wasm --router "$router" --owner "$owner")"
+          gmp="$(deploy "ibc-gmp" stellar_ibc_gmp.wasm --owner "$owner" --router "$router")"
+          tendermint="$(deploy "tendermint light client" stellar_tendermint_light_client.wasm --router "$router")"
+          ethereum="$(deploy "sp1-ethereum light client" stellar_sp1_ethereum_light_client.wasm --router "$router")"
+
+          voucher_hash="$(upload "ibc-voucher-token" stellar_ibc_voucher_token.wasm)"
+          account_hash="$(upload "gmp-account" ipsa_gmp_account.wasm)"
+
+          invoke "$router" register_client_type --client_type 07-tendermint --light_client_address "$tendermint"
+          invoke "$router" register_client_type --client_type sepolia --light_client_address "$ethereum"
+          invoke "$router" register_port --port_id transfer --app_address "$transfer"
+          invoke "$router" register_port --port_id gmpport --app_address "$gmp"
+          invoke "$transfer" set_voucher_wasm --wasm_hash "$voucher_hash"
+          invoke "$gmp" set_account_wasm --wasm_hash "$account_hash"
+
+          {
+            echo "## Deployed to Stellar testnet"
+            echo
+            echo "| Contract | Kind | Value |"
+            echo "|---|---|---|"
+            while IFS=$'\t' read -r name kind value; do
+              echo "| $name | $kind | \`$value\` |"
+            done < "$records"
+            echo
+            echo "The router registers \`07-tendermint\` and \`sepolia\` as client types, and \`transfer\` and \`gmpport\` as ports."
+          } > deployment/deployments.md
+
+          jq -Rn --arg tag "$TAG" --arg network testnet '
+            [inputs | split("\t") | {name: .[0], kind: .[1], value: .[2]}]
+            | {tag: $tag, network: $network, deployments: .}
+          ' < "$records" > deployment/deployments.json
+
+          cat deployment/deployments.md >> "$GITHUB_STEP_SUMMARY"
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+
+      - name: upload the deployment record
+        if: ${{ steps.deploy.outputs.deployed == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment
+          path: |
+            deployment/deployments.md
+            deployment/deployments.json
+          if-no-files-found: error
+
+  release:
+    name: github release
+    runs-on: ubuntu-latest
+    needs: [wasm, deploy]
+    if: ${{ inputs.dry_run != true }}
+    permissions:
+      contents: write
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: download wasm dist
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-dist
+          path: dist
+
+      - name: download the deployment record
+        if: ${{ needs.deploy.outputs.deployed == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment
+          path: deployment
+
+      - name: publish, never replacing what is already published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.wasm.outputs.tag }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            if [ -f deployment/deployments.md ]; then
+              gh release create "$TAG" --title "$TAG" --generate-notes \
+                --notes "$(cat deployment/deployments.md)" \
+                dist/* deployment/deployments.json
+            else
+              gh release create "$TAG" --title "$TAG" --generate-notes dist/*
+            fi
+            exit 0
+          fi
+
+          if gh release download "$TAG" --pattern SHA256SUMS --dir /tmp/published 2>/dev/null; then
+            if ! diff -u /tmp/published/SHA256SUMS dist/SHA256SUMS; then
+              echo "::error::release $TAG already carries different wasm; a published checksum is never replaced"
+              exit 1
+            fi
+            echo "::notice::release $TAG already carries these exact wasm files; nothing to upload"
+          else
+            gh release upload "$TAG" dist/*
+          fi
