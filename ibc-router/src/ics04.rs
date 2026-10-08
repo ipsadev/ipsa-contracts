@@ -57,6 +57,7 @@ impl Ics04 for IbcRouter {
         }
 
         let counterparty = get_counterparty(env, &source_client_id);
+        active_light_client(env, &source_client_id);
 
         if timeout_timestamp <= env.ledger().timestamp() {
             panic_with_error!(env, Error::TimeoutAlreadyElapsed);
@@ -240,9 +241,7 @@ impl Ics04 for IbcRouter {
             panic_with_error!(env, Error::PacketCounterpartyMismatch);
         }
 
-        let light_client_address =
-            IbcRouter::light_client_address(env, packet.source_client.clone())
-                .unwrap_or_else(|| panic_with_error!(env, Error::ClientIdNotFound));
+        let light_client_address = active_light_client(env, &packet.source_client);
 
         let proof_ts: u64 = env.invoke_contract(
             &light_client_address,
@@ -356,6 +355,15 @@ fn dispatch_timeout_callbacks(env: &Env, packet: &Packet) {
     }
 }
 
+fn active_light_client(env: &Env, client_id: &String) -> Address {
+    if IbcRouter::frozen(env, client_id.clone()) {
+        panic_with_error!(env, Error::ClientFrozen);
+    }
+
+    IbcRouter::light_client_address(env, client_id.clone())
+        .unwrap_or_else(|| panic_with_error!(env, Error::ClientIdNotFound))
+}
+
 fn verify_membership(
     env: &Env,
     client_id: &String,
@@ -364,8 +372,7 @@ fn verify_membership(
     path: &Bytes,
     value: &Bytes,
 ) {
-    let light_client_address = IbcRouter::light_client_address(env, client_id.clone())
-        .unwrap_or_else(|| panic_with_error!(env, Error::ClientIdNotFound));
+    let light_client_address = active_light_client(env, client_id);
     let ok: bool = env.invoke_contract(
         &light_client_address,
         &Symbol::new(env, "verify_membership"),
@@ -390,8 +397,7 @@ fn verify_non_membership(
     proof: &Bytes,
     path: &Bytes,
 ) {
-    let light_client_address = IbcRouter::light_client_address(env, client_id.clone())
-        .unwrap_or_else(|| panic_with_error!(env, Error::ClientIdNotFound));
+    let light_client_address = active_light_client(env, client_id);
     let ok: bool = env.invoke_contract(
         &light_client_address,
         &Symbol::new(env, "verify_non_membership"),
