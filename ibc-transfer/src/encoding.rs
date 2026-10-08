@@ -366,7 +366,7 @@ pub fn encode_ics20_abi(env: &Env, packet: &FungibleTokenPacketData) -> Bytes {
 pub fn decode_packet_abi(env: &Env, value: &Bytes) -> FungibleTokenPacketData {
     let len = value.len() as usize;
 
-    if len < (1 + ABI_HEAD_WORDS) * ABI_WORD || len > MAX_PACKET_BYTES {
+    if !((1 + ABI_HEAD_WORDS) * ABI_WORD..=MAX_PACKET_BYTES).contains(&len) {
         panic_with_error!(env, Error::InvalidPacketData);
     }
 
