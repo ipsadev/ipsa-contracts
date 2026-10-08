@@ -80,16 +80,26 @@ const IC_4: [u8; 64] = [
 
 const SELECTOR: [u8; 4] = [0x43, 0x88, 0xa2, 0x1c];
 
+const VK_ROOT: [u8; 32] = [
+    0x00, 0x2f, 0x85, 0x0e, 0xe9, 0x98, 0x97, 0x4d, 0x6c, 0xc0, 0x0e, 0x50, 0xcd, 0x08, 0x14, 0xb0,
+    0x98, 0xc0, 0x5b, 0xfa, 0xde, 0x46, 0x6d, 0x28, 0x57, 0x32, 0x40, 0xd0, 0x57, 0xf2, 0x53, 0x52,
+];
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum VerifyError {
     WrongSelector,
     ProofTooShort,
     NonZeroExitCode,
+    InvalidVkRoot,
     PairingFailed,
 }
 
 pub fn verifier_selector() -> [u8; 4] {
     SELECTOR
+}
+
+pub fn vk_root() -> [u8; 32] {
+    VK_ROOT
 }
 
 pub fn verify_proof(
@@ -112,7 +122,7 @@ pub fn verify_proof(
         return Err(VerifyError::ProofTooShort);
     }
 
-    let word = |index: u32| -> U256 {
+    let raw_word = |index: u32| -> [u8; 32] {
         let start = 4 + index * 32;
         let mut raw = [0_u8; 32];
 
@@ -120,13 +130,21 @@ pub fn verify_proof(
             raw[offset as usize] = proof_bytes.get(start + offset).unwrap_or(0);
         }
 
-        U256::from_be_bytes(env, &Bytes::from_array(env, &raw))
+        raw
+    };
+
+    let word = |index: u32| -> U256 {
+        U256::from_be_bytes(env, &Bytes::from_array(env, &raw_word(index)))
     };
 
     let exit_code = word(0);
 
     if exit_code != U256::from_u32(env, 0) {
         return Err(VerifyError::NonZeroExitCode);
+    }
+
+    if raw_word(1) != VK_ROOT {
+        return Err(VerifyError::InvalidVkRoot);
     }
 
     let digest = public_values_digest(env, public_values);
