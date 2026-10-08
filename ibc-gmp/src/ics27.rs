@@ -2,11 +2,12 @@ use soroban_sdk::{
     contractimpl, panic_with_error, vec, Address, Bytes, Env, IntoVal, String, Symbol, Vec,
 };
 
-use crate::errors::Error;
-use crate::limits;
-use crate::storage;
-use crate::types::{GmpPacketData, Payload};
-use crate::{IbcGmpApp, IbcGmpAppArgs, IbcGmpAppClient, PORT, VERSION};
+use crate::{
+    errors::Error,
+    limits, storage,
+    types::{GmpPacketData, Payload},
+    IbcGmpApp, IbcGmpAppArgs, IbcGmpAppClient, PORT, VERSION,
+};
 
 pub trait Ics27 {
     fn send_call(

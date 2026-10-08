@@ -4,11 +4,9 @@ mod account_contract {
     soroban_sdk::contractimport!(file = "../target/wasm32v1-none/contract/ipsa_gmp_account.wasm");
 }
 
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{
-    contract, contractimpl, symbol_short, vec, Address, Bytes, Env, IntoVal, String, Symbol, Val,
-    Vec,
+    contract, contractimpl, symbol_short, testutils::Address as _, vec, xdr::ToXdr, Address, Bytes,
+    Env, IntoVal, String, Symbol, Val, Vec,
 };
 use stellar_ibc_gmp::{
     GmpCall, GmpPacketData, IbcGmpApp, IbcGmpAppClient, OnRecvPacketCallback, Payload,

@@ -1,8 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String};
-use stellar_access::access_control::set_admin;
-use stellar_access::ownable::Ownable;
+use stellar_access::{access_control::set_admin, ownable::Ownable};
 use stellar_macros::only_owner;
 
 mod account;
@@ -15,12 +14,14 @@ mod limits;
 mod storage;
 mod types;
 
-pub use crate::errors::Error;
-pub use crate::ics04::Ics04;
-pub use crate::ics27::Ics27;
-pub use crate::types::{
-    Acknowledgement, DerivedAccount, GmpCall, GmpPacketData, OnAcknowledgementPacketCallback,
-    OnRecvPacketCallback, OnTimeoutPacketCallback, Payload,
+pub use crate::{
+    errors::Error,
+    ics04::Ics04,
+    ics27::Ics27,
+    types::{
+        Acknowledgement, DerivedAccount, GmpCall, GmpPacketData, OnAcknowledgementPacketCallback,
+        OnRecvPacketCallback, OnTimeoutPacketCallback, Payload,
+    },
 };
 
 pub(crate) const PORT: &str = "gmpport";

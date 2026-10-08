@@ -1,15 +1,17 @@
 use soroban_sdk::{contractimpl, panic_with_error, xdr::ToXdr, Bytes, Env, IntoVal, String};
 use stellar_macros::only_admin;
 
-use crate::account;
-use crate::encoding::{decode_call, decode_packet};
-use crate::errors::Error;
-use crate::limits;
-use crate::storage;
-use crate::types::{
-    Acknowledgement, OnAcknowledgementPacketCallback, OnRecvPacketCallback, OnTimeoutPacketCallback,
+use crate::{
+    account,
+    encoding::{decode_call, decode_packet},
+    errors::Error,
+    limits, storage,
+    types::{
+        Acknowledgement, OnAcknowledgementPacketCallback, OnRecvPacketCallback,
+        OnTimeoutPacketCallback,
+    },
+    IbcGmpApp, IbcGmpAppArgs, IbcGmpAppClient, PORT, VERSION,
 };
-use crate::{IbcGmpApp, IbcGmpAppArgs, IbcGmpAppClient, PORT, VERSION};
 
 pub trait Ics04 {
     fn on_recv_packet(env: Env, callback: OnRecvPacketCallback) -> Bytes;

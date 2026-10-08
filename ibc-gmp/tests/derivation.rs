@@ -1,7 +1,6 @@
 #![cfg(test)]
 
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Bytes, Env, String};
+use soroban_sdk::{testutils::Address as _, Address, Bytes, Env, String};
 use stellar_ibc_gmp::{IbcGmpApp, IbcGmpAppClient};
 
 fn deploy(env: &Env) -> IbcGmpAppClient<'_> {

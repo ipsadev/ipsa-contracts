@@ -1,9 +1,11 @@
 use soroban_sdk::{panic_with_error, xdr::FromXdr, Bytes, Env, String};
 
-use crate::errors::Error;
-use crate::json;
-use crate::types::{GmpCall, GmpPacketData};
-use crate::{ENCODING, ENCODING_JSON};
+use crate::{
+    errors::Error,
+    json,
+    types::{GmpCall, GmpPacketData},
+    ENCODING, ENCODING_JSON,
+};
 
 pub fn decode_packet(env: &Env, encoding: &String, value: &Bytes) -> GmpPacketData {
     if *encoding == String::from_str(env, ENCODING) {

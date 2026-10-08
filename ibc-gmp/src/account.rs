@@ -2,9 +2,11 @@ use soroban_sdk::{
     panic_with_error, xdr::ToXdr, Address, Bytes, BytesN, Env, IntoVal, String, Val, Vec,
 };
 
-use crate::errors::Error;
-use crate::storage::{self, account_wasm};
-use crate::types::DerivedAccount;
+use crate::{
+    errors::Error,
+    storage::{self, account_wasm},
+    types::DerivedAccount,
+};
 
 pub fn salt_for(env: &Env, client_id: &String, sender: &String, salt: &Bytes) -> BytesN<32> {
     let mut preimage = Bytes::new(env);

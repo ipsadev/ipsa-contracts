@@ -1,7 +1,6 @@
 use soroban_sdk::{panic_with_error, Env};
 
-use crate::errors::Error;
-use crate::types::GmpPacketData;
+use crate::{errors::Error, types::GmpPacketData};
 
 pub const MAX_SENDER_BYTES: u32 = 256;
 pub const MAX_RECEIVER_BYTES: u32 = 256;

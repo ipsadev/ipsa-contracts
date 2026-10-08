@@ -1,7 +1,6 @@
 use soroban_sdk::{panic_with_error, Bytes, Env, String};
 
-use crate::errors::Error;
-use crate::types::GmpPacketData;
+use crate::{errors::Error, types::GmpPacketData};
 
 pub const MAX_JSON_BYTES: usize = 8192;
 
