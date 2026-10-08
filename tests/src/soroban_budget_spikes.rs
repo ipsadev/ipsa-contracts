@@ -145,7 +145,6 @@ mod bls_msm_is_a_trap {
 
     const COMMITTEE: u32 = 512;
     const KEY_DST: &[u8] = b"BLS_SPIKE_KEYGEN_ONLY_NOT_A_REAL_KEY_";
-    const SIG_DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
     const CPU_LIMIT: u64 = 100_000_000;
 
     fn committee(env: &Env, size: u32) -> Vec<Bls12381G1Affine> {

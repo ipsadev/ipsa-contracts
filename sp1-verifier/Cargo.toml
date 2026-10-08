@@ -1,0 +1,17 @@
+[package]
+name = "stellar-sp1-verifier"
+description = "Verify an SP1 Groth16 proof on Soroban, over BN254"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+
+[lib]
+crate-type = ["rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
