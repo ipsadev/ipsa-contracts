@@ -4,8 +4,7 @@ use ics23::{
 };
 use prost::Message;
 use sha2::{Digest, Sha256};
-use soroban_sdk::xdr::ToXdr;
-use soroban_sdk::{Bytes, BytesN, Env, String};
+use soroban_sdk::{xdr::ToXdr, Bytes, BytesN, Env, String};
 use stellar_tendermint_light_client::{
     Height, TendermintClientState, TendermintConsensusState, TendermintLightClient,
     TendermintLightClientClient, TrustThreshold,

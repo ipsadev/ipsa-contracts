@@ -1,7 +1,8 @@
 #![cfg(test)]
 
-use super::*;
 use soroban_sdk::{Bytes, Env, String};
+
+use super::*;
 
 #[test]
 fn initialise_sets_state_and_height() {

@@ -1,6 +1,8 @@
-use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::token::StellarAssetClient;
-use soroban_sdk::{vec, Address, Bytes, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    token::StellarAssetClient,
+    vec, Address, Bytes, Env, String,
+};
 use stellar_ibc_router::{IbcRouter, IbcRouterClient, Packet, Payload};
 use stellar_ibc_transfer::{
     address_to_string, encode_ics20_json, FungibleTokenPacketData, IbcTransferApp,
@@ -33,12 +35,23 @@ fn register_local(net: &Net) -> Address {
     sac
 }
 
+fn voucher_denom(net: &Net) -> String {
+    let mut traced = std::string::String::from("transfer/");
+
+    traced.push_str(&net.client_id.to_string());
+    traced.push_str("/XLM");
+
+    String::from_str(&net.env, &traced)
+}
+
 fn register_voucher(net: &Net) {
     let sac = net
         .env
         .register_stellar_asset_contract_v2(net.transfer_addr.clone())
         .address();
-    net.transfer.register_asset(&xlm(&net.env), &sac, &true);
+
+    net.transfer
+        .register_asset(&voucher_denom(net), &sac, &true);
 }
 
 fn fund(net: &Net, sac: &Address, to: &Address, amount: i128) {
@@ -192,7 +205,10 @@ fn cosmos_to_stellar_recv_credits_receiver_and_writes_ack() {
     net.router
         .recv_packet(&packet, &Bytes::from_slice(&net.env, b"proof"), &10);
 
-    assert_eq!(net.transfer.balance_of(&receiver, &xlm(&net.env)), 500);
+    assert_eq!(
+        net.transfer.balance_of(&receiver, &voucher_denom(&net)),
+        500
+    );
     assert!(net.router.acknowledgement(&net.client_id, &1).is_some());
     assert!(net.router.has_packet_receipt(&net.client_id, &1));
 }
@@ -215,9 +231,9 @@ fn multi_packet_recv_distinct_sequences_all_credit() {
         assert!(net.router.has_packet_receipt(&net.client_id, &seq));
     }
 
-    assert_eq!(net.transfer.balance_of(&r1, &xlm(&net.env)), 100);
-    assert_eq!(net.transfer.balance_of(&r2, &xlm(&net.env)), 200);
-    assert_eq!(net.transfer.balance_of(&r3, &xlm(&net.env)), 300);
+    assert_eq!(net.transfer.balance_of(&r1, &voucher_denom(&net)), 100);
+    assert_eq!(net.transfer.balance_of(&r2, &voucher_denom(&net)), 200);
+    assert_eq!(net.transfer.balance_of(&r3, &voucher_denom(&net)), 300);
 }
 
 #[test]
@@ -235,7 +251,10 @@ fn duplicate_recv_packet_is_rejected() {
         .try_recv_packet(&packet, &Bytes::from_slice(&net.env, b"proof"), &10);
 
     assert!(replayed.is_err());
-    assert_eq!(net.transfer.balance_of(&receiver, &xlm(&net.env)), 500);
+    assert_eq!(
+        net.transfer.balance_of(&receiver, &voucher_denom(&net)),
+        500
+    );
 }
 
 #[test]

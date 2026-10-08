@@ -1,9 +1,10 @@
 #![cfg(test)]
 
-use super::*;
 use ed25519_dalek::{Signer, SigningKey};
 use rand::rngs::OsRng;
 use soroban_sdk::{xdr::ToXdr, Bytes, BytesN, Env, String, Vec};
+
+use super::*;
 
 struct Attestation {
     signing: SigningKey,

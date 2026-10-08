@@ -1,8 +1,11 @@
 use prost::Message;
-use soroban_sdk::{Bytes, Env};
-use stellar_tendermint_light_client::verify::{validator_set_hash, verify_commit};
-use tendermint_testgen::validator::generate_validators;
-use tendermint_testgen::Validator as TgValidator;
+use soroban_sdk::{xdr::ToXdr, Bytes, BytesN, Env, String};
+use stellar_tendermint_light_client::{
+    verify::{validator_set_hash, verify_commit},
+    Height, TendermintClientState, TendermintConsensusState, TendermintHeader,
+    TendermintLightClient, TendermintLightClientClient, TrustThreshold,
+};
+use tendermint_testgen::{validator::generate_validators, Generator, Validator as TgValidator};
 
 fn build_set(specs: &[(&str, u64)]) -> tendermint::validator::Set {
     let tg: std::vec::Vec<TgValidator> = specs
@@ -68,7 +71,6 @@ fn validator_set_hash_matches_for_seven_validators() {
 }
 
 fn gen_light_block(height: u64) -> tendermint::block::signed_header::SignedHeader {
-    use tendermint_testgen::Generator;
     let lb = tendermint_testgen::LightBlock::new_default(height);
     lb.generate().unwrap().signed_header
 }
@@ -123,7 +125,6 @@ fn gen_full(
     tendermint::block::signed_header::SignedHeader,
     tendermint::validator::Set,
 ) {
-    use tendermint_testgen::Generator;
     let lb = tendermint_testgen::LightBlock::new_default(height)
         .generate()
         .unwrap();
@@ -193,13 +194,6 @@ fn setup_client(
     stellar_tendermint_light_client::TendermintLightClientClient<'static>,
     soroban_sdk::String,
 ) {
-    use soroban_sdk::xdr::ToXdr;
-    use soroban_sdk::{BytesN, String};
-    use stellar_tendermint_light_client::{
-        Height, TendermintClientState, TendermintConsensusState, TendermintLightClient,
-        TendermintLightClientClient, TrustThreshold,
-    };
-
     let addr = env.register(TendermintLightClient, ());
     let client = TendermintLightClientClient::new(env, &addr);
     let client_id = String::from_str(env, "07-tendermint-0");
@@ -247,10 +241,6 @@ fn build_update_msg(
     vs_bytes: &[u8],
     trusted_height: u64,
 ) -> Bytes {
-    use soroban_sdk::xdr::ToXdr;
-    use soroban_sdk::BytesN;
-    use stellar_tendermint_light_client::{Height, TendermintHeader};
-
     let sh_bytes = tendermint_proto::types::SignedHeader::from(sh.clone()).encode_to_vec();
     let header = TendermintHeader {
         trusted_height: Height {
@@ -340,10 +330,6 @@ fn forged_update_msg(
     trusted_height: u64,
     app_hash: [u8; 32],
 ) -> Bytes {
-    use soroban_sdk::xdr::ToXdr;
-    use soroban_sdk::BytesN;
-    use stellar_tendermint_light_client::{Height, TendermintHeader};
-
     let mut sh = sh.clone();
     for sig in sh.commit.signatures.iter_mut() {
         if let tendermint::block::CommitSig::BlockIdFlagCommit {
