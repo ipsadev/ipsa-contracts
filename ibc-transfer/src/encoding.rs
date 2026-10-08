@@ -1,9 +1,12 @@
 use soroban_sdk::{panic_with_error, Address, Bytes, Env, String};
 
-use crate::errors::Error;
-use crate::types::{FungibleTokenPacketData, Token};
+use crate::{
+    errors::Error,
+    types::{FungibleTokenPacketData, Token},
+};
 
 pub(crate) const SUCCESS_ACK_BYTE: u8 = 0x01;
+pub(crate) const SUCCESS_ACK_JSON: &[u8] = b"{\"result\":\"AQ==\"}";
 
 pub const ENCODING_JSON: &str = "application/json";
 

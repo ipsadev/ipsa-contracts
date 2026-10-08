@@ -7,8 +7,7 @@ mod voucher_contract {
 }
 
 use common::{fund, register_local, setup, xlm, Fixture};
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, String};
+use soroban_sdk::{testutils::Address as _, Address, String};
 use stellar_ibc_transfer::{
     address_to_string, decode_packet_abi, encode_ics20_abi, received_denom,
     FungibleTokenPacketData, OnRecvPacketCallback, Payload, Token, ENCODING_SOLIDITY_ABI,

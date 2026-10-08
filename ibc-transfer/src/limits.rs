@@ -1,9 +1,9 @@
 use soroban_sdk::{contractimpl, panic_with_error, Env, String};
-
-use crate::errors::Error;
-use crate::storage::DataKey;
-use crate::{IbcTransferApp, IbcTransferAppArgs, IbcTransferAppClient};
 use stellar_macros::only_owner;
+
+use crate::{
+    errors::Error, storage::DataKey, IbcTransferApp, IbcTransferAppArgs, IbcTransferAppClient,
+};
 
 const SECS_PER_DAY: u64 = 86_400;
 

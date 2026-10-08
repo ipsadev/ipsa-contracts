@@ -1,8 +1,10 @@
 mod common;
 
 use common::{fund, register_local, setup, xlm};
-use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::{Address, String};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, String,
+};
 use stellar_ibc_transfer::Error;
 
 #[test]

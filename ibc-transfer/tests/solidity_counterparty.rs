@@ -1,8 +1,7 @@
 mod common;
 
 use common::{fund, register_local, setup, xlm, Fixture};
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{vec, Address, Bytes, String};
+use soroban_sdk::{testutils::Address as _, vec, Address, Bytes, String};
 use stellar_ibc_transfer::{
     address_to_string, encode_ics20_abi, Error, FungibleTokenPacketData, OnTimeoutPacketCallback,
     Payload, Token, ENCODING_JSON, ENCODING_SOLIDITY_ABI,

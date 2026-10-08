@@ -1,8 +1,7 @@
 mod common;
 
 use common::{register_voucher, setup, xlm};
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, String};
+use soroban_sdk::{testutils::Address as _, Address, String};
 
 #[test]
 fn initiate_transfer_rejects_unheld_foreign_asset() {

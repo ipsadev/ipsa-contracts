@@ -4,8 +4,10 @@ use common::{
     build_inbound_packet, fund, register_local, register_voucher, setup, xlm, ENCODING,
     SUCCESS_ACK_BYTE,
 };
-use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::{vec, Address, Bytes, String};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    vec, Address, Bytes, String,
+};
 use stellar_ibc_transfer::{
     address_to_string, encode_ics20_json, Error, FungibleTokenPacketData, OnTimeoutPacketCallback,
     Payload, Token,

@@ -1,14 +1,14 @@
 use soroban_sdk::{contractimpl, panic_with_error, Bytes, Env, String};
 use stellar_macros::only_admin;
 
-use crate::assets::refund;
-use crate::encoding::{decode_payload, is_success_ack, string_to_address, SUCCESS_ACK_BYTE};
-use crate::errors::Error;
-use crate::trace::received_denom;
-use crate::types::{
-    OnAcknowledgementPacketCallback, OnRecvPacketCallback, OnTimeoutPacketCallback,
+use crate::{
+    assets::refund,
+    encoding::{decode_payload, is_success_ack, string_to_address, SUCCESS_ACK_JSON},
+    errors::Error,
+    trace::received_denom,
+    types::{OnAcknowledgementPacketCallback, OnRecvPacketCallback, OnTimeoutPacketCallback},
+    IbcTransferApp, IbcTransferAppArgs, IbcTransferAppClient, PORT,
 };
-use crate::{IbcTransferApp, IbcTransferAppArgs, IbcTransferAppClient, PORT};
 
 pub trait Ics04 {
     fn on_recv_packet(env: Env, callback: OnRecvPacketCallback) -> Bytes;
@@ -42,7 +42,7 @@ impl Ics04 for IbcTransferApp {
 
         crate::voucher::credit(&env, &denom, &receiver_addr, packet.token.amount);
 
-        Bytes::from_slice(&env, &[SUCCESS_ACK_BYTE])
+        Bytes::from_slice(&env, SUCCESS_ACK_JSON)
     }
 
     #[only_admin]

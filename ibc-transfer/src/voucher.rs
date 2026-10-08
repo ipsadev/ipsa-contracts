@@ -2,10 +2,7 @@ use soroban_sdk::{
     panic_with_error, token, vec, Address, Bytes, BytesN, Env, IntoVal, String, Symbol,
 };
 
-use crate::assets::try_details;
-use crate::errors::Error;
-use crate::storage::DataKey;
-use crate::types::AssetKind;
+use crate::{assets::try_details, errors::Error, storage::DataKey, types::AssetKind};
 
 const MAX_DENOM_BYTES: usize = 256;
 

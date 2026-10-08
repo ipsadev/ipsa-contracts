@@ -6,9 +6,8 @@ mod voucher_contract {
     );
 }
 
-use common::{build_inbound_packet, setup, SUCCESS_ACK_BYTE};
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Bytes, String};
+use common::{build_inbound_packet, setup, SUCCESS_ACK_JSON};
+use soroban_sdk::{testutils::Address as _, Address, Bytes, String};
 use stellar_ibc_transfer::{OnRecvPacketCallback, Payload};
 
 fn recv_callback(
@@ -56,7 +55,7 @@ fn recv_unregistered_denom_auto_deploys_voucher_and_mints() {
         .transfer
         .on_recv_packet(&recv_callback(&f, &receiver, &stake, 1_000));
 
-    assert_eq!(ack, Bytes::from_slice(&f.env, &[SUCCESS_ACK_BYTE]));
+    assert_eq!(ack, Bytes::from_slice(&f.env, SUCCESS_ACK_JSON));
     assert_eq!(
         f.transfer
             .balance_of(&receiver, &voucher_denom(&f, "stake")),

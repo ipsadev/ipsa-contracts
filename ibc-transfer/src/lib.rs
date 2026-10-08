@@ -14,15 +14,17 @@ mod trace;
 mod types;
 mod voucher;
 
-pub use crate::encoding::{
-    address_to_string, decode_packet, decode_packet_abi, decode_payload, encode_ics20_abi,
-    encode_ics20_json, encode_payload, ENCODING_JSON, ENCODING_SOLIDITY_ABI,
-};
-pub use crate::errors::Error;
-pub use crate::trace::received_denom;
-pub use crate::types::{
-    AssetInfo, AssetKind, FungibleTokenPacketData, OnAcknowledgementPacketCallback,
-    OnRecvPacketCallback, OnTimeoutPacketCallback, Payload, Token,
+pub use crate::{
+    encoding::{
+        address_to_string, decode_packet, decode_packet_abi, decode_payload, encode_ics20_abi,
+        encode_ics20_json, encode_payload, ENCODING_JSON, ENCODING_SOLIDITY_ABI,
+    },
+    errors::Error,
+    trace::received_denom,
+    types::{
+        AssetInfo, AssetKind, FungibleTokenPacketData, OnAcknowledgementPacketCallback,
+        OnRecvPacketCallback, OnTimeoutPacketCallback, Payload, Token,
+    },
 };
 
 pub(crate) const PORT: &str = "transfer";

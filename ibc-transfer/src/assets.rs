@@ -1,3 +1,6 @@
+use soroban_sdk::{contractimpl, panic_with_error, token, Address, Env, String, Vec};
+use stellar_macros::only_owner;
+
 use crate::{
     encoding::string_to_address,
     errors::Error,
@@ -5,8 +8,6 @@ use crate::{
     types::{AssetEntry, AssetInfo, AssetKind, FungibleTokenPacketData},
     IbcTransferApp, IbcTransferAppArgs, IbcTransferAppClient,
 };
-use soroban_sdk::{contractimpl, panic_with_error, token, Address, Env, String, Vec};
-use stellar_macros::only_owner;
 
 pub trait Assets {
     fn register_asset(env: Env, denom: String, address: Address, voucher: bool);
