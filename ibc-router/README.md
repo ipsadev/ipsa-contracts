@@ -90,8 +90,14 @@ every leaf of the tree.
 - Each leaf sits at the first 8 bytes of `sha256(path)`, and the router records the full
   `sha256(path)` that owns each slot. A write by a different path that lands on an occupied slot
   fails with `ProvableSlotTaken`, and a removal only clears a slot its own path owns, so a 64-bit
-  collision can neither overwrite nor erase another path's leaf. Leaves written before owners were
-  recorded have no owner until their path writes them again.
+  collision can neither overwrite nor erase another path's leaf.
+- The tree is a 64-level sparse Merkle tree stored incrementally, so it has no size cap. Every leaf,
+  slot owner and branch point is its own storage entry; a branch point caches the hash of its
+  subtree and points at its two children, and a run of single children is folded level by level
+  when hashed, so the root is exactly that of the full 64-level tree. A write walks only the path to
+  its leaf, splits or collapses at most one branch, and rehashes that path: about 64 hashes and a
+  few dozen entries whatever the number of leaves. `compute_root` recomputes the same root from a
+  plain map, and the tests hold the two equal over random workloads and edge indices.
 
 **Packet lifecycle (ICS-04 / ICS-26):**
 - `send_packet(source_client_id, timeout_timestamp, payloads) -> sequence`

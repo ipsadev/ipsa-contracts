@@ -349,11 +349,11 @@ fn committing_a_root_extends_the_provable_tree() {
         .send_packet(&f.client_id, &2_000, &vec![&f.env, payload]);
 
     let ttl = f.env.as_contract(&f.router_id, || {
-        f.env.storage().persistent().get_ttl(&SmtKey::Leaves)
+        f.env.storage().persistent().get_ttl(&SmtKey::Top)
     });
 
     assert!(
         ttl > 4_096,
-        "the leaf map must be extended past the minimum, got {ttl}"
+        "the provable tree must be extended past the minimum, got {ttl}"
     );
 }

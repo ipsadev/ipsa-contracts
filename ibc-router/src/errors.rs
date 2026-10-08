@@ -49,4 +49,5 @@ pub enum Error {
     ProvableStoreFull = 23,
     LightClientNotInitialised = 24,
     ProvableSlotTaken = 25,
+    ProvableStoreCorrupt = 26,
 }
