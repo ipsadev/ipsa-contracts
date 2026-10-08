@@ -3,8 +3,10 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error,
     xdr::{FromXdr, ToXdr},
-    Bytes, BytesN, Env, String,
+    Address, Bytes, BytesN, Env, String,
 };
+use stellar_access::access_control::set_admin;
+use stellar_macros::only_admin;
 
 mod ics23;
 mod tmproto;
@@ -24,6 +26,7 @@ pub enum Error {
     ChainIdMismatch = 8,
     HeaderHeightNotAfterTrusted = 9,
     TrustingPeriodElapsed = 10,
+    ClientAlreadyInitialised = 11,
 }
 
 #[contracttype]
@@ -94,6 +97,11 @@ pub struct TendermintLightClient;
 
 #[contractimpl]
 impl TendermintLightClient {
+    pub fn __constructor(env: Env, router: Address) {
+        set_admin(&env, &router);
+    }
+
+    #[only_admin]
     pub fn initialise(
         env: Env,
         client_id: String,
@@ -101,6 +109,14 @@ impl TendermintLightClient {
         consensus_state: Bytes,
         height: u64,
     ) {
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::Client(client_id.clone()))
+        {
+            panic_with_error!(&env, Error::ClientAlreadyInitialised);
+        }
+
         let cs = TendermintClientState::from_xdr(&env, &client_state)
             .unwrap_or_else(|_| panic_with_error!(&env, Error::InvalidClientState));
         let cons = TendermintConsensusState::from_xdr(&env, &consensus_state)
@@ -183,6 +199,7 @@ impl TendermintLightClient {
         check.height
     }
 
+    #[only_admin]
     pub fn update_state_on_misbehaviour(env: Env, client_id: String, client_message: Bytes) {
         let mut cs = load_client_state(&env, &client_id);
         cs.is_frozen = true;

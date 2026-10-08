@@ -1,6 +1,9 @@
 extern crate alloc;
 
-use soroban_sdk::{Bytes, BytesN, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, AuthorizedFunction},
+    Address, Bytes, BytesN, Env, String,
+};
 use stellar_sp1_ethereum_light_client::{Sp1EthereumLightClient, Sp1EthereumLightClientClient};
 
 const STELLAR: &str = include_str!("./fixtures/proof-fixture.json");
@@ -73,18 +76,29 @@ fn message(env: &Env, public_values: &[u8], proof: &[u8]) -> Bytes {
 struct Fixed {
     env: Env,
     client: Sp1EthereumLightClientClient<'static>,
+    router: Address,
     id: String,
 }
 
-fn deploy() -> Fixed {
+fn deploy_without_auths() -> Fixed {
     let env = Env::default();
-    let address = env.register(Sp1EthereumLightClient, ());
+    let router = Address::generate(&env);
+    let address = env.register(Sp1EthereumLightClient, (router.clone(),));
 
     Fixed {
         client: Sp1EthereumLightClientClient::new(&env, &address),
+        router,
         id: String::from_str(&env, "08-wasm-0"),
         env,
     }
+}
+
+fn deploy() -> Fixed {
+    let f = deploy_without_auths();
+
+    f.env.mock_all_auths();
+
+    f
 }
 
 fn deploy_for_header() -> Fixed {
@@ -111,6 +125,39 @@ fn header_message(f: &Fixed) -> Bytes {
         &from(HEADER, "publicValues"),
         &from(HEADER, "proof"),
     )
+}
+
+#[test]
+fn only_the_router_can_initialise() {
+    let f = deploy_without_auths();
+
+    let result = f.client.try_initialise(
+        &f.id,
+        &client_state(
+            &f.env,
+            &vkey_of(HEADER),
+            &vkey_of(MEMBERSHIP),
+            &header_hash(0),
+        ),
+        &consensus_state(&f.env, &header_hash(32), 1),
+        &header_u64(96),
+    );
+
+    assert!(result.is_err());
+    assert_eq!(f.client.latest_height(&f.id), 0);
+}
+
+#[test]
+fn initialise_is_authorised_by_the_router() {
+    let f = deploy_for_header();
+    let auths = f.env.auths();
+
+    assert_eq!(auths.len(), 1);
+    assert_eq!(auths[0].0, f.router);
+    assert!(matches!(
+        &auths[0].1.function,
+        AuthorizedFunction::Contract((_, name, _)) if name == &soroban_sdk::Symbol::new(&f.env, "initialise")
+    ));
 }
 
 #[test]

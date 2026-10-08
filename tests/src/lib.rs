@@ -9,3 +9,6 @@ mod tendermint_verify;
 
 #[cfg(test)]
 mod soroban_budget_spikes;
+
+#[cfg(test)]
+mod light_client_access;

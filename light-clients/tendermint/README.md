@@ -108,6 +108,16 @@ struct Misbehaviour { header_a: TendermintHeader, header_b: TendermintHeader }
 `update_state_on_misbehaviour`, `frozen`, `verify_membership`,
 `verify_non_membership`, `get_timestamp_at_height`.
 
+## Access
+
+The contract is deployed with the router's address
+(`__constructor(router)`), which becomes its OpenZeppelin access-control admin.
+`initialise` and `update_state_on_misbehaviour` are `#[only_admin]`, so only the
+router reaches them: `create_client` and `migrate_client` for the first, and
+`update_client` after `check_for_misbehaviour` for the second. A client id is
+initialised once; a second `initialise` for it panics with
+`ClientAlreadyInitialised`.
+
 ## Architecture flow
 
 ```

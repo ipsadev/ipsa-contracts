@@ -1998,6 +1998,8 @@ name = "stellar-sp1-ethereum-light-client"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellar-access",
+ "stellar-macros",
  "stellar-sp1-verifier",
 ]
 
@@ -2034,6 +2036,8 @@ name = "stellar-tendermint-light-client"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellar-access",
+ "stellar-macros",
 ]
 
 [[package]]

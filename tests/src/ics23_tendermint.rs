@@ -4,7 +4,7 @@ use ics23::{
 };
 use prost::Message;
 use sha2::{Digest, Sha256};
-use soroban_sdk::{xdr::ToXdr, Bytes, BytesN, Env, String};
+use soroban_sdk::{testutils::Address as _, xdr::ToXdr, Bytes, BytesN, Env, String};
 use stellar_tendermint_light_client::{
     Height, TendermintClientState, TendermintConsensusState, TendermintLightClient,
     TendermintLightClientClient, TrustThreshold,
@@ -118,7 +118,11 @@ fn merkle_bytes(cps: &[CommitmentProof]) -> Vec<u8> {
 }
 
 fn setup(env: &Env, root: [u8; 32], height: u64) -> (TendermintLightClientClient<'static>, String) {
-    let addr = env.register(TendermintLightClient, ());
+    let router = soroban_sdk::Address::generate(env);
+    let addr = env.register(TendermintLightClient, (router,));
+
+    env.mock_all_auths();
+
     let client = TendermintLightClientClient::new(env, &addr);
     let client_id = String::from_str(env, "07-tendermint-0");
 

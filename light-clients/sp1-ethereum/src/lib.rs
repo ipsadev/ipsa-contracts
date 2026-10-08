@@ -4,8 +4,10 @@ mod membership;
 mod wire;
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Bytes, BytesN, Env, String, Symbol,
+    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, String, Symbol,
 };
+use stellar_access::access_control::set_admin;
+use stellar_macros::only_admin;
 
 #[contracttype]
 #[derive(Clone)]
@@ -24,6 +26,11 @@ pub struct Sp1EthereumLightClient;
 
 #[contractimpl]
 impl Sp1EthereumLightClient {
+    pub fn __constructor(env: Env, router: Address) {
+        set_admin(&env, &router);
+    }
+
+    #[only_admin]
     pub fn initialise(
         env: Env,
         client_id: String,

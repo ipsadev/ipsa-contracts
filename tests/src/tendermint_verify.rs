@@ -1,5 +1,5 @@
 use prost::Message;
-use soroban_sdk::{xdr::ToXdr, Bytes, BytesN, Env, String};
+use soroban_sdk::{testutils::Address as _, xdr::ToXdr, Bytes, BytesN, Env, String};
 use stellar_tendermint_light_client::{
     verify::{validator_set_hash, verify_commit},
     Height, TendermintClientState, TendermintConsensusState, TendermintHeader,
@@ -194,7 +194,11 @@ fn setup_client(
     stellar_tendermint_light_client::TendermintLightClientClient<'static>,
     soroban_sdk::String,
 ) {
-    let addr = env.register(TendermintLightClient, ());
+    let router = soroban_sdk::Address::generate(env);
+    let addr = env.register(TendermintLightClient, (router,));
+
+    env.mock_all_auths();
+
     let client = TendermintLightClientClient::new(env, &addr);
     let client_id = String::from_str(env, "07-tendermint-0");
 

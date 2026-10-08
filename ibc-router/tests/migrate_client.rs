@@ -27,16 +27,14 @@ fn migration_repoints_the_client_and_later_updates_reach_the_new_contract() {
     let (env, _router_id, router, original) = setup();
     let client_id = created(&env, &router);
     let replacement = env.register(MockLightClient, ());
-    let replacement_client = MockLightClientClient::new(&env, &replacement);
 
-    replacement_client.initialise(
+    router.migrate_client(
         &client_id,
+        &replacement,
         &Bytes::from_slice(&env, b"seeded-client-state"),
         &Bytes::from_slice(&env, b"seeded-consensus-state"),
         &40,
     );
-
-    router.migrate_client(&client_id, &replacement);
 
     assert_eq!(
         router.light_client_address(&client_id),
@@ -59,14 +57,13 @@ fn migration_keeps_the_counterparty() {
     let before = router.counterparty(&client_id).expect("registered");
     let replacement = env.register(MockLightClient, ());
 
-    MockLightClientClient::new(&env, &replacement).initialise(
+    router.migrate_client(
         &client_id,
+        &replacement,
         &Bytes::from_slice(&env, b"client-state"),
         &Bytes::from_slice(&env, b"consensus-state"),
         &2,
     );
-
-    router.migrate_client(&client_id, &replacement);
 
     let after = router.counterparty(&client_id).expect("still registered");
 
@@ -75,12 +72,18 @@ fn migration_keeps_the_counterparty() {
 }
 
 #[test]
-fn a_contract_not_initialised_for_the_client_is_refused() {
+fn a_migration_that_leaves_the_client_uninitialised_is_refused() {
     let (env, _router_id, router, _original) = setup();
     let client_id = created(&env, &router);
-    let empty = env.register(MockLightClient, ());
+    let replacement = env.register(MockLightClient, ());
 
-    let result = router.try_migrate_client(&client_id, &empty);
+    let result = router.try_migrate_client(
+        &client_id,
+        &replacement,
+        &Bytes::from_slice(&env, b"client-state"),
+        &Bytes::from_slice(&env, b"consensus-state"),
+        &0,
+    );
 
     assert_eq!(result, Err(Ok(Error::LightClientNotInitialised.into())));
 }
@@ -89,7 +92,13 @@ fn a_contract_not_initialised_for_the_client_is_refused() {
 fn an_unknown_client_cannot_be_migrated() {
     let (env, _router_id, router, original) = setup();
 
-    let result = router.try_migrate_client(&String::from_str(&env, "mock-9"), &original);
+    let result = router.try_migrate_client(
+        &String::from_str(&env, "mock-9"),
+        &original,
+        &Bytes::from_slice(&env, b"client-state"),
+        &Bytes::from_slice(&env, b"consensus-state"),
+        &2,
+    );
 
     assert_eq!(result, Err(Ok(Error::ClientIdNotFound.into())));
 }

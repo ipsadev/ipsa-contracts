@@ -37,7 +37,14 @@ pub trait Ics02 {
 
     fn light_client_address(env: &Env, client_id: String) -> Option<Address>;
 
-    fn migrate_client(env: &Env, client_id: String, light_client_address: Address);
+    fn migrate_client(
+        env: &Env,
+        client_id: String,
+        light_client_address: Address,
+        client_state: Bytes,
+        consensus_state: Bytes,
+        height: u64,
+    );
 
     fn frozen(env: &Env, client_id: String) -> bool;
 }
@@ -191,7 +198,14 @@ impl Ics02 for IbcRouter {
     }
 
     #[only_owner]
-    fn migrate_client(env: &Env, client_id: String, light_client_address: Address) {
+    fn migrate_client(
+        env: &Env,
+        client_id: String,
+        light_client_address: Address,
+        client_state: Bytes,
+        consensus_state: Bytes,
+        height: u64,
+    ) {
         if !env
             .storage()
             .persistent()
@@ -200,11 +214,24 @@ impl Ics02 for IbcRouter {
             panic_with_error!(env, Error::ClientIdNotFound);
         }
 
-        let args: Vec<Val> = soroban_sdk::vec![env, client_id.clone().into_val(env)];
+        let initialise_args: Vec<Val> = soroban_sdk::vec![
+            env,
+            client_id.clone().into_val(env),
+            client_state.into_val(env),
+            consensus_state.into_val(env),
+            height.into_val(env),
+        ];
+        let _: () = env.invoke_contract(
+            &light_client_address,
+            &Symbol::new(env, "initialise"),
+            initialise_args,
+        );
+
+        let latest_args: Vec<Val> = soroban_sdk::vec![env, client_id.clone().into_val(env)];
         let latest_height: u64 = env.invoke_contract(
             &light_client_address,
             &Symbol::new(env, "latest_height"),
-            args,
+            latest_args,
         );
 
         if latest_height == 0 {

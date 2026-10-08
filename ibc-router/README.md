@@ -46,13 +46,19 @@ combined with the `ICS02ClientUpgradeable` (client registry) and
   dispatches to `update_state` or `update_state_on_misbehaviour`.
 - `client_lc_address(client_id) -> Option<Address>`
 - `frozen(client_id) -> bool`
-- `migrate_client(client_id, light_client_address)` — owner-only; ICS-02's
-  `migrateClient`, as the Solidity `ICS26Router` has it. Repoints an existing
-  client id at another light-client contract, which must already be initialised
-  for that id (its `latest_height(client_id)` is non-zero, else
-  `LightClientNotInitialised`), clears the frozen flag, and emits
-  `ClientMigrated`. The counterparty, sequences, commitments, receipts and acks
-  all stay, because they live here and are keyed by the client id.
+- `migrate_client(client_id, light_client_address, client_state, consensus_state, height)`
+  — owner-only; ICS-02's `migrateClient`, as the Solidity `ICS26Router` has it.
+  Initialises the replacement light client for that id through its `initialise`,
+  the same call `create_client` makes, then repoints the id at it, clears the
+  frozen flag, and emits `ClientMigrated`. A replacement that still reports
+  `latest_height(client_id) == 0` is refused with `LightClientNotInitialised`.
+  The counterparty, sequences, commitments, receipts and acks all stay, because
+  they live here and are keyed by the client id.
+
+  The router is the only caller a light client accepts for `initialise`: each
+  light client is deployed with the router as its OpenZeppelin access-control
+  admin, so nobody can claim the next client id or seed a replacement before the
+  owner migrates to it.
 
   Why it exists: every call resolves a client through the address stored for its
   id at `create_client`, so without it a client that has to be replaced — one
