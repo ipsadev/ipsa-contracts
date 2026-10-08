@@ -6,6 +6,7 @@ members = [
     "gmp-account",
     "ibc-voucher-token",
     "ibc-router",
+    "sp1-verifier",
     "tests"
 ]
 resolver = "2"

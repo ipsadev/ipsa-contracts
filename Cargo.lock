@@ -1994,6 +1994,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellar-sp1-ethereum-light-client"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "stellar-sp1-verifier",
+]
+
+[[package]]
+name = "stellar-sp1-verifier"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "stellar-strkey"
 version = "0.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
