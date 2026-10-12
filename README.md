@@ -30,3 +30,7 @@ Artifacts land under `target/wasm32v1-none/contract/`.
 
 The router, the transfer app and each light client have their own README with
 the contract's API and storage layout.
+
+## License
+
+Copyright 2026 Amanda Gonsalves. Licensed under the [Apache License 2.0](LICENSE).
