@@ -109,3 +109,12 @@ pub fn build_inbound_packet(
 
     encode_ics20_json(env, &pkt)
 }
+
+pub fn traced(f: &Fixture, port: &str, client: &String, denom: &str) -> String {
+    let mut buf = [0u8; 128];
+    let len = client.len() as usize;
+    client.copy_into_slice(&mut buf[..len]);
+    let client = core::str::from_utf8(&buf[..len]).unwrap();
+
+    String::from_str(&f.env, &format!("{port}/{client}/{denom}"))
+}

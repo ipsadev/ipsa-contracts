@@ -75,3 +75,15 @@ pub struct FungibleTokenPacketData {
     pub receiver: String,
     pub memo: String,
 }
+
+#[contracttype]
+#[derive(Clone)]
+pub struct TransferReceived {
+    pub source_client: String,
+    pub dest_client: String,
+    pub sequence: u64,
+    pub sender: String,
+    pub token: Address,
+    pub amount: i128,
+    pub memo: String,
+}

@@ -1,7 +1,7 @@
 mod common;
 
 use common::{
-    build_inbound_packet, fund, register_local, register_voucher, setup, xlm, ENCODING,
+    build_inbound_packet, fund, register_local, register_voucher, setup, traced, xlm, ENCODING,
     SUCCESS_ACK_BYTE,
 };
 use soroban_sdk::{
@@ -304,13 +304,4 @@ fn timeout_packet_refunds_sender() {
 
     assert_eq!(f.transfer.balance_of(&sender, &xlm(&f.env)), 1_000);
     assert_eq!(f.transfer.balance_of(&f.transfer_addr, &xlm(&f.env)), 0);
-}
-
-fn traced(f: &common::Fixture, port: &str, client: &String, denom: &str) -> String {
-    let mut buf = [0u8; 128];
-    let len = client.len() as usize;
-    client.copy_into_slice(&mut buf[..len]);
-    let client = core::str::from_utf8(&buf[..len]).unwrap();
-
-    String::from_str(&f.env, &format!("{port}/{client}/{denom}"))
 }

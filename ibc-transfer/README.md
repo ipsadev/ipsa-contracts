@@ -212,6 +212,24 @@ pins the router's id. The router itself is still not upgradeable.
      in this crate above]
 ```
 
+## Transfer and call
+
+A transfer can deliver tokens to a contract and call it in the same receive, by putting a destination callback in the memo:
+
+```json
+{"dest_callback": {"address": "C…"}}
+```
+
+The address must be the transfer's receiver. The app credits the tokens to that contract, then calls:
+
+```rust
+fn on_ibc_transfer_received(env: Env, transfer_app: Address, received: TransferReceived);
+```
+
+`TransferReceived` carries the source and destination clients, the sequence, the sender on the source chain, the token's contract address on Stellar, the amount and the full memo, so the contract can read its own instructions from it. A contract should check that `transfer_app` is the transfer app it trusts and call `transfer_app.require_auth()`, which succeeds only when the transfer app is the caller.
+
+If the call fails, the credit is rolled back and the packet is acknowledged with an error, so the sender is refunded on the source chain. A callback naming a contract other than the receiver, or a `dest_callback` the app cannot read, is refused the same way. Only the first 1,024 bytes of a memo are inspected; a longer memo is treated as a plain transfer.
+
 ## Ack / timeout handling on the source side
 
 ```

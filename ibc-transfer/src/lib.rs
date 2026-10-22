@@ -6,6 +6,7 @@ use stellar_access::ownable::Ownable;
 mod assets;
 mod encoding;
 mod errors;
+mod hooks;
 mod ics04;
 mod ics20;
 mod limits;
@@ -23,7 +24,7 @@ pub use crate::{
     trace::received_denom,
     types::{
         AssetInfo, AssetKind, FungibleTokenPacketData, OnAcknowledgementPacketCallback,
-        OnRecvPacketCallback, OnTimeoutPacketCallback, Payload, Token,
+        OnRecvPacketCallback, OnTimeoutPacketCallback, Payload, Token, TransferReceived,
     },
 };
 

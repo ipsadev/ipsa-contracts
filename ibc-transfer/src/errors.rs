@@ -26,4 +26,5 @@ pub enum Error {
     VoucherWasmNotSet = 9,
     TooManyAssets = 10,
     UnsupportedEncoding = 11,
+    InvalidCallback = 12,
 }

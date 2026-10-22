@@ -5,8 +5,12 @@ use crate::{
     assets::refund,
     encoding::{decode_payload, is_success_ack, string_to_address, SUCCESS_ACK_JSON},
     errors::Error,
+    hooks,
     trace::received_denom,
-    types::{OnAcknowledgementPacketCallback, OnRecvPacketCallback, OnTimeoutPacketCallback},
+    types::{
+        OnAcknowledgementPacketCallback, OnRecvPacketCallback, OnTimeoutPacketCallback,
+        TransferReceived,
+    },
     IbcTransferApp, IbcTransferAppArgs, IbcTransferAppClient, PORT,
 };
 
@@ -40,7 +44,29 @@ impl Ics04 for IbcTransferApp {
             &packet.token.denom,
         );
 
+        let destination = hooks::destination_callback(&env, &packet.memo);
+
+        if let Some(target) = &destination {
+            if *target != packet.receiver {
+                panic_with_error!(&env, Error::InvalidCallback);
+            }
+        }
+
         crate::voucher::credit(&env, &denom, &receiver_addr, packet.token.amount);
+
+        if destination.is_some() {
+            let received = TransferReceived {
+                source_client: callback.source_client.clone(),
+                dest_client: callback.dest_client.clone(),
+                sequence: callback.sequence,
+                sender: packet.sender.clone(),
+                token: crate::voucher::token_address(&env, &denom),
+                amount: packet.token.amount,
+                memo: packet.memo.clone(),
+            };
+
+            hooks::call(&env, &receiver_addr, received);
+        }
 
         Bytes::from_slice(&env, SUCCESS_ACK_JSON)
     }

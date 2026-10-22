@@ -49,12 +49,14 @@ pub(crate) fn debit(env: &Env, denom: &String, from: &Address, amount: i128) {
 }
 
 pub(crate) fn balance(env: &Env, who: &Address, denom: &String) -> i128 {
-    let address = match try_details(env, denom) {
+    token::Client::new(env, &token_address(env, denom)).balance(who)
+}
+
+pub(crate) fn token_address(env: &Env, denom: &String) -> Address {
+    match try_details(env, denom) {
         Some(info) => info.address,
         None => voucher_address(env, denom),
-    };
-
-    token::Client::new(env, &address).balance(who)
+    }
 }
 
 pub(crate) fn voucher_address(env: &Env, denom: &String) -> Address {
