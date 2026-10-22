@@ -5,13 +5,14 @@ use crate::{
     assets::refund,
     encoding::{decode_payload, is_success_ack, string_to_address, SUCCESS_ACK_JSON},
     errors::Error,
-    hooks,
+    events::TransferCredited,
+    hooks, results,
     trace::received_denom,
     types::{
         OnAcknowledgementPacketCallback, OnRecvPacketCallback, OnTimeoutPacketCallback,
-        TransferReceived,
+        TransferAcknowledged, TransferReceived, TransferTimedOut,
     },
-    IbcTransferApp, IbcTransferAppArgs, IbcTransferAppClient, PORT,
+    IbcTransferApp, IbcTransferAppArgs, IbcTransferAppClient, PORT, VERSION,
 };
 
 pub trait Ics04 {
@@ -32,7 +33,16 @@ impl Ics04 for IbcTransferApp {
             panic_with_error!(&env, Error::UnknownDestPort);
         }
 
+        if callback.payload.version != String::from_str(&env, VERSION) {
+            panic_with_error!(&env, Error::UnsupportedVersion);
+        }
+
         let packet = decode_payload(&env, &callback.payload.encoding, &callback.payload.value);
+
+        if packet.token.amount <= 0 {
+            panic_with_error!(&env, Error::AmountMustBePositive);
+        }
+
         let receiver_addr = string_to_address(&env, &packet.receiver);
 
         let denom = received_denom(
@@ -53,6 +63,16 @@ impl Ics04 for IbcTransferApp {
         }
 
         crate::voucher::credit(&env, &denom, &receiver_addr, packet.token.amount);
+
+        TransferCredited {
+            dest_client: callback.dest_client.clone(),
+            sequence: callback.sequence,
+            sender: packet.sender.clone(),
+            receiver: receiver_addr.clone(),
+            denom: denom.clone(),
+            amount: packet.token.amount,
+        }
+        .publish(&env);
 
         if destination.is_some() {
             let received = TransferReceived {
@@ -79,13 +99,24 @@ impl Ics04 for IbcTransferApp {
             panic_with_error!(&env, Error::UnknownSourcePort);
         }
 
-        if is_success_ack(&callback.acknowledgement) {
-            return;
+        let packet = decode_payload(&env, &callback.payload.encoding, &callback.payload.value);
+        let success = is_success_ack(&callback.acknowledgement);
+
+        if !success {
+            refund(&env, &callback.source_client, callback.sequence, &packet);
         }
 
-        let packet = decode_payload(&env, &callback.payload.encoding, &callback.payload.value);
-
-        refund(&env, &packet);
+        results::acknowledged(
+            &env,
+            &packet.sender,
+            TransferAcknowledged {
+                source_client: callback.source_client,
+                dest_client: callback.dest_client,
+                sequence: callback.sequence,
+                success,
+                acknowledgement: callback.acknowledgement,
+            },
+        );
     }
 
     #[only_admin]
@@ -98,6 +129,16 @@ impl Ics04 for IbcTransferApp {
 
         let packet = decode_payload(&env, &callback.payload.encoding, &callback.payload.value);
 
-        refund(&env, &packet);
+        refund(&env, &callback.source_client, callback.sequence, &packet);
+
+        results::timed_out(
+            &env,
+            &packet.sender,
+            TransferTimedOut {
+                source_client: callback.source_client,
+                dest_client: callback.dest_client,
+                sequence: callback.sequence,
+            },
+        );
     }
 }

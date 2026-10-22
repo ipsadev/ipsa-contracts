@@ -4,6 +4,7 @@ use stellar_macros::only_owner;
 use crate::{
     encoding::string_to_address,
     errors::Error,
+    events::TransferRefunded,
     storage::DataKey,
     types::{AssetEntry, AssetInfo, AssetKind, FungibleTokenPacketData},
     IbcTransferApp, IbcTransferAppArgs, IbcTransferAppClient,
@@ -14,7 +15,7 @@ pub trait Assets {
 
     fn unregister_asset(env: Env, denom: String);
 
-    fn asset(env: Env, denom: String);
+    fn asset(env: Env, denom: String) -> AssetInfo;
 
     fn assets(env: Env) -> Vec<AssetEntry>;
 
@@ -47,8 +48,8 @@ impl Assets for IbcTransferApp {
         env.storage().persistent().remove(&DataKey::Asset(denom));
     }
 
-    fn asset(env: Env, denom: String) {
-        details(&env, &denom);
+    fn asset(env: Env, denom: String) -> AssetInfo {
+        details(&env, &denom)
     }
 
     fn assets(env: Env) -> Vec<AssetEntry> {
@@ -133,8 +134,22 @@ pub(crate) fn try_details(env: &Env, denom: &String) -> Option<AssetInfo> {
         .get::<_, AssetInfo>(&DataKey::Asset(denom.clone()))
 }
 
-pub(crate) fn refund(env: &Env, packet: &FungibleTokenPacketData) {
+pub(crate) fn refund(
+    env: &Env,
+    source_client: &String,
+    sequence: u64,
+    packet: &FungibleTokenPacketData,
+) {
     let sender_addr = string_to_address(env, &packet.sender);
 
     crate::voucher::credit(env, &packet.token.denom, &sender_addr, packet.token.amount);
+
+    TransferRefunded {
+        source_client: source_client.clone(),
+        sequence,
+        sender: sender_addr,
+        denom: packet.token.denom.clone(),
+        amount: packet.token.amount,
+    }
+    .publish(env);
 }

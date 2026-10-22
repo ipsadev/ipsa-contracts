@@ -86,3 +86,25 @@ fn a_listed_entry_carries_the_address_it_was_registered_with() {
     assert_eq!(entry.denom, xlm(&f.env));
     assert_eq!(entry.address, sac);
 }
+
+#[test]
+fn asset_returns_the_registered_asset() {
+    let f = common::setup();
+    let address = common::register_local(&f, &common::xlm(&f.env));
+    let info = f.transfer.asset(&common::xlm(&f.env));
+
+    assert_eq!(info.address, address);
+    assert!(info.kind == stellar_ibc_transfer::AssetKind::Local);
+}
+
+#[test]
+fn asset_rejects_an_unknown_denom() {
+    let f = common::setup();
+
+    let result = f.transfer.try_asset(&common::xlm(&f.env));
+
+    assert!(matches!(
+        result,
+        Err(Ok(error)) if error == stellar_ibc_transfer::Error::UnknownAsset.into()
+    ));
+}

@@ -27,4 +27,5 @@ pub enum Error {
     TooManyAssets = 10,
     UnsupportedEncoding = 11,
     InvalidCallback = 12,
+    UnsupportedVersion = 13,
 }

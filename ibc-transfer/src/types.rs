@@ -87,3 +87,21 @@ pub struct TransferReceived {
     pub amount: i128,
     pub memo: String,
 }
+
+#[contracttype]
+#[derive(Clone)]
+pub struct TransferAcknowledged {
+    pub source_client: String,
+    pub dest_client: String,
+    pub sequence: u64,
+    pub success: bool,
+    pub acknowledgement: Bytes,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct TransferTimedOut {
+    pub source_client: String,
+    pub dest_client: String,
+    pub sequence: u64,
+}

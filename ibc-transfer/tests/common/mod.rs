@@ -118,3 +118,85 @@ pub fn traced(f: &Fixture, port: &str, client: &String, denom: &str) -> String {
 
     String::from_str(&f.env, &format!("{port}/{client}/{denom}"))
 }
+
+pub fn outbound_value(env: &Env, sender: &Address, amount: i128) -> Bytes {
+    let packet = FungibleTokenPacketData {
+        token: Token {
+            denom: xlm(env),
+            amount,
+        },
+        sender: address_to_string(env, sender),
+        receiver: String::from_str(env, "cosmos1abc"),
+        memo: String::from_str(env, ""),
+    };
+
+    encode_ics20_json(env, &packet)
+}
+
+pub fn outbound_packet(
+    f: &Fixture,
+    sequence: u64,
+    sender: &Address,
+    amount: i128,
+) -> stellar_ibc_router::Packet {
+    stellar_ibc_router::Packet {
+        sequence,
+        source_client: f.source_client_id.clone(),
+        dest_client: f.counterparty_client_id.clone(),
+        timeout_timestamp: 2_000,
+        payloads: vec![
+            &f.env,
+            stellar_ibc_router::Payload {
+                source_port: String::from_str(&f.env, "transfer"),
+                dest_port: String::from_str(&f.env, "transfer"),
+                version: String::from_str(&f.env, "ics20-1"),
+                encoding: String::from_str(&f.env, ENCODING),
+                value: outbound_value(&f.env, sender, amount),
+            },
+        ],
+    }
+}
+
+pub fn outbound_timeout(
+    f: &Fixture,
+    sequence: u64,
+    sender: &Address,
+    amount: i128,
+) -> stellar_ibc_transfer::OnTimeoutPacketCallback {
+    stellar_ibc_transfer::OnTimeoutPacketCallback {
+        source_client: f.source_client_id.clone(),
+        dest_client: f.counterparty_client_id.clone(),
+        sequence,
+        payload: stellar_ibc_transfer::Payload {
+            source_port: String::from_str(&f.env, "transfer"),
+            dest_port: String::from_str(&f.env, "transfer"),
+            version: String::from_str(&f.env, "ics20-1"),
+            encoding: String::from_str(&f.env, ENCODING),
+            value: outbound_value(&f.env, sender, amount),
+        },
+    }
+}
+
+pub fn inbound_packet(
+    f: &Fixture,
+    version: &str,
+    receiver: &Address,
+    amount: i128,
+) -> stellar_ibc_router::Packet {
+    stellar_ibc_router::Packet {
+        sequence: 1,
+        source_client: f.counterparty_client_id.clone(),
+        dest_client: f.source_client_id.clone(),
+        timeout_timestamp: 2_000,
+        payloads: vec![
+            &f.env,
+            stellar_ibc_router::Payload {
+                source_port: String::from_str(&f.env, "transfer"),
+                dest_port: String::from_str(&f.env, "transfer"),
+                version: String::from_str(&f.env, version),
+                encoding: String::from_str(&f.env, ENCODING),
+                value: build_inbound_packet(&f.env, "cosmos1abc", receiver, &xlm(&f.env), amount),
+            },
+        ],
+    }
+}

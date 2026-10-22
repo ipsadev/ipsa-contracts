@@ -17,30 +17,48 @@ error.
     encodes a `FungibleTokenPacketData` in the encoding configured for
     `source_client_id` (see [Encodings](#encodings)), packages it into a
     `Payload` (port=`transfer`, version=`ics20-1`), and calls
-    `router.send_packet` via `env.invoke_contract`. Returns the minted
-    sequence.
+    `router.send_packet` via `env.invoke_contract`. Publishes `TransferSent`
+    and returns the minted sequence.
+  - A contract can be the sender. The escrow is a token `transfer` from the
+    sender to this app, one call below `initiate_transfer`, so the contract
+    authorises it first with `authorize_as_current_contract` (see
+    `tests/sender_callbacks.rs`).
 - **Inbound (counterparty → user):**
   - `on_recv_packet(callback)` is dispatched by the router; the app decodes
     the packet data, resolves the denom through its trace (see
-    [Denom trace](#denom-trace)), credits the receiver, and returns the success
-    ack `[0x01]`.
+    [Denom trace](#denom-trace)), credits the receiver, publishes
+    `TransferCredited`, and returns the success ack `{"result":"AQ=="}`.
+  - A packet whose version is not `ics20-1`, or whose amount is zero or
+    negative, is refused, and the router answers it with the universal error
+    ack.
 - **Ack handling:**
   - `on_acknowledgement_packet(callback)` is dispatched by the router after
     the counterparty's ack arrives. If the ack matches the success sentinel
     `[0x01]` or starts with `{"result"` (what ibc-go and upstream's
-    `ICS20Transfer.sol` both write), no-op. Otherwise — including EVM's
-    universal error ack — refund the sender from escrow.
+    `ICS20Transfer.sol` both write), the escrow stays with the counterparty.
+    Otherwise — including EVM's universal error ack — refund the sender from
+    escrow and publish `TransferRefunded`.
 - **Timeout handling:**
   - `on_timeout_packet(callback)` is dispatched by the router when the
     packet times out without delivery; the app refunds the sender from
-    escrow.
+    escrow and publishes `TransferRefunded`.
+- **Telling a contract sender the outcome:**
+  - When the sender is a contract, the app calls it after the outcome is
+    settled, so any refund has already landed:
+    `on_transfer_acknowledgement(transfer: Address, result: TransferAcknowledged)`
+    with `success` and the raw acknowledgement, or
+    `on_transfer_timeout(transfer: Address, result: TransferTimedOut)`.
+  - The sender should check that `transfer` is the app it called and call
+    `transfer.require_auth()`.
+  - A failing or missing callback is ignored, so a broken sender can never
+    block its own refund. Account senders get no callback.
 
 ## Who calls it
 
 | Caller | Calls |
 |---|---|
 | Off-chain admin (deploy) | `__constructor(router, admin)`, `set_rate_limit(denom, daily_cap)`, `set_client_encoding(client_id, encoding)`, `register_asset(denom, address, voucher)` |
-| Users (wallets, scripts) | `initiate_transfer(...)`, `balance_of(...)`, `daily_cap(...)`, `daily_usage(...)` |
+| Users (wallets, scripts) | `initiate_transfer(...)`, `asset(denom) -> AssetInfo`, `assets()`, `balance_of(...)`, `daily_cap(...)`, `daily_usage(...)` |
 | Tests / dev seeding | `mint(to, denom, amount)` — `TODO(sac)`: replace with SAC `transfer` once integrated |
 | The router | `on_recv_packet`, `on_acknowledgement_packet`, `on_timeout_packet` — never called by anyone else (router address pins itself via `require_auth`) |
 
@@ -196,7 +214,7 @@ pins the router's id. The router itself is still not upgradeable.
                 |  decode FungibleTokenPacketData
                 |  credit(receiver, denom)
                 v
-       returns ack = [0x01]
+       returns ack = {"result":"AQ=="}
                 |
                 v
        +--------+--------+

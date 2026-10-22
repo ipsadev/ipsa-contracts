@@ -7,6 +7,7 @@ use stellar_macros::only_owner;
 use crate::{
     encoding::{address_to_string, encode_payload, require_supported_encoding, ENCODING_JSON},
     errors::Error,
+    events::TransferSent,
     limits::enforce_rate_limit,
     storage::DataKey,
     types::{FungibleTokenPacketData, Payload, Token},
@@ -111,15 +112,27 @@ impl Ics20 for IbcTransferApp {
             .unwrap_or_else(|| panic_with_error!(&env, Error::RouterNotSet));
         let payloads: Vec<Payload> = vec![&env, payload];
 
-        env.invoke_contract::<u64>(
+        let sequence = env.invoke_contract::<u64>(
             &router_addr,
             &Symbol::new(&env, "send_packet"),
             vec![
                 &env,
-                source_client_id.into_val(&env),
+                source_client_id.clone().into_val(&env),
                 timeout_timestamp.into_val(&env),
                 payloads.into_val(&env),
             ],
-        )
+        );
+
+        TransferSent {
+            source_client: source_client_id,
+            sequence,
+            sender,
+            denom,
+            amount,
+            receiver: packet.receiver,
+        }
+        .publish(&env);
+
+        sequence
     }
 }
