@@ -4,6 +4,7 @@ use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String};
 use stellar_access::{access_control::set_admin, ownable::Ownable};
 use stellar_macros::only_owner;
 
+mod abi;
 mod account;
 mod encoding;
 mod errors;
@@ -11,6 +12,7 @@ mod ics04;
 mod ics27;
 mod json;
 mod limits;
+mod results;
 mod storage;
 mod types;
 
@@ -19,8 +21,8 @@ pub use crate::{
     ics04::Ics04,
     ics27::Ics27,
     types::{
-        Acknowledgement, DerivedAccount, GmpCall, GmpPacketData, OnAcknowledgementPacketCallback,
-        OnRecvPacketCallback, OnTimeoutPacketCallback, Payload,
+        Acknowledgement, DerivedAccount, GmpAcknowledged, GmpCall, GmpPacketData, GmpTimedOut,
+        OnAcknowledgementPacketCallback, OnRecvPacketCallback, OnTimeoutPacketCallback, Payload,
     },
 };
 
@@ -28,6 +30,7 @@ pub(crate) const PORT: &str = "gmpport";
 pub(crate) const VERSION: &str = "ics27-2";
 pub(crate) const ENCODING: &str = "application/x-soroban-xdr";
 pub(crate) const ENCODING_JSON: &str = "application/json";
+pub(crate) const ENCODING_SOLIDITY_ABI: &str = "application/x-solidity-abi";
 
 #[contract]
 pub struct IbcGmpApp;
@@ -46,6 +49,11 @@ impl IbcGmpApp {
     #[only_owner]
     pub fn set_account_wasm(env: &Env, wasm_hash: BytesN<32>) {
         storage::set_account_wasm(env, &wasm_hash);
+    }
+
+    #[only_owner]
+    pub fn upgrade(env: &Env, wasm_hash: BytesN<32>) {
+        env.deployer().update_current_contract_wasm(wasm_hash);
     }
 
     pub fn port(env: &Env) -> String {

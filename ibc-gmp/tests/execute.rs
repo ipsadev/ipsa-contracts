@@ -211,3 +211,45 @@ fn a_call_targeting_the_router_is_refused() {
 
     f.app.on_recv_packet(&recv(&f, "cosmos1abc", &[7u8], &call));
 }
+
+#[test]
+fn a_call_from_an_evm_chain_is_acknowledged_in_solidity_abi() {
+    let f = setup();
+    let encoding = String::from_str(&f.env, "application/x-solidity-abi");
+    let client = String::from_str(&f.env, "07-tendermint-0");
+    let sender = String::from_str(&f.env, "0x9A3e5d6C2b0E7Ff1a4f1C9a1e7b1A5c1D2E3F4A5");
+    let salt = Bytes::new(&f.env);
+
+    let derived = f.app.account_address(&client, &sender, &salt);
+    let call = call_for(&f, &derived.address, 9);
+
+    let packet = GmpPacketData {
+        sender: sender.clone(),
+        receiver: f.target.address.to_string(),
+        salt: salt.clone(),
+        payload: call.to_xdr(&f.env),
+        memo: String::from_str(&f.env, ""),
+    };
+
+    let mut callback = recv(&f, "unused", &[], &call_for(&f, &derived.address, 0));
+    callback.payload.encoding = encoding.clone();
+    callback.payload.value = f.app.encode_packet(&encoding, &packet);
+
+    let ack = f.app.on_recv_packet(&callback);
+
+    let value: Val = 9u32.into_val(&f.env);
+    let result = value.to_xdr(&f.env);
+    let mut expected = Bytes::new(&f.env);
+    for word in [32u32, 32, result.len()] {
+        let mut bytes = [0u8; 32];
+        bytes[28..].copy_from_slice(&word.to_be_bytes());
+        expected.append(&Bytes::from_slice(&f.env, &bytes));
+    }
+    expected.append(&result);
+    let padding = (32 - result.len() % 32) % 32;
+    expected.append(&Bytes::from_slice(&f.env, &[0u8; 32][..padding as usize]));
+
+    assert_eq!(f.target.value(), Some(9));
+    assert_eq!(f.target.caller(), Some(derived.address));
+    assert_eq!(ack, expected);
+}

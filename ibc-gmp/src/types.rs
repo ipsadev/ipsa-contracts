@@ -68,3 +68,21 @@ pub struct DerivedAccount {
     pub address: Address,
     pub materialized: bool,
 }
+
+#[contracttype]
+#[derive(Clone)]
+pub struct GmpAcknowledged {
+    pub source_client: String,
+    pub dest_client: String,
+    pub sequence: u64,
+    pub success: bool,
+    pub acknowledgement: Bytes,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct GmpTimedOut {
+    pub source_client: String,
+    pub dest_client: String,
+    pub sequence: u64,
+}

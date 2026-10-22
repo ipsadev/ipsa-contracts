@@ -1,10 +1,11 @@
 use soroban_sdk::{panic_with_error, xdr::FromXdr, Bytes, Env, String};
 
 use crate::{
+    abi,
     errors::Error,
     json,
-    types::{GmpCall, GmpPacketData},
-    ENCODING, ENCODING_JSON,
+    types::{Acknowledgement, GmpCall, GmpPacketData},
+    ENCODING, ENCODING_JSON, ENCODING_SOLIDITY_ABI,
 };
 
 pub fn decode_packet(env: &Env, encoding: &String, value: &Bytes) -> GmpPacketData {
@@ -15,6 +16,10 @@ pub fn decode_packet(env: &Env, encoding: &String, value: &Bytes) -> GmpPacketDa
 
     if *encoding == String::from_str(env, ENCODING_JSON) {
         return json::decode_packet(env, value);
+    }
+
+    if *encoding == String::from_str(env, ENCODING_SOLIDITY_ABI) {
+        return abi::decode_packet(env, value);
     }
 
     panic_with_error!(env, Error::UnsupportedEncoding)
@@ -29,7 +34,19 @@ pub fn encode_packet(env: &Env, encoding: &String, packet: &GmpPacketData) -> By
         return json::encode_packet(env, packet);
     }
 
+    if *encoding == String::from_str(env, ENCODING_SOLIDITY_ABI) {
+        return abi::encode_packet(env, packet);
+    }
+
     panic_with_error!(env, Error::UnsupportedEncoding)
+}
+
+pub fn encode_acknowledgement(env: &Env, encoding: &String, result: Bytes) -> Bytes {
+    if *encoding == String::from_str(env, ENCODING_SOLIDITY_ABI) {
+        return abi::encode_acknowledgement(env, &result);
+    }
+
+    soroban_sdk::xdr::ToXdr::to_xdr(Acknowledgement { result }, env)
 }
 
 pub fn decode_call(env: &Env, payload: &Bytes) -> GmpCall {

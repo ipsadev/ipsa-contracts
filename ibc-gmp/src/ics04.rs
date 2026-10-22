@@ -3,11 +3,11 @@ use stellar_macros::only_admin;
 
 use crate::{
     account,
-    encoding::{decode_call, decode_packet},
+    encoding::{decode_call, decode_packet, encode_acknowledgement},
     errors::Error,
-    limits, storage,
+    limits, results, storage,
     types::{
-        Acknowledgement, OnAcknowledgementPacketCallback, OnRecvPacketCallback,
+        GmpAcknowledged, GmpTimedOut, OnAcknowledgementPacketCallback, OnRecvPacketCallback,
         OnTimeoutPacketCallback,
     },
     IbcGmpApp, IbcGmpAppArgs, IbcGmpAppClient, PORT, VERSION,
@@ -57,10 +57,7 @@ impl Ics04 for IbcGmpApp {
             ],
         );
 
-        Acknowledgement {
-            result: result.to_xdr(&env),
-        }
-        .to_xdr(&env)
+        encode_acknowledgement(&env, &callback.payload.encoding, result.to_xdr(&env))
     }
 
     #[only_admin]
@@ -68,6 +65,18 @@ impl Ics04 for IbcGmpApp {
         if callback.payload.source_port != String::from_str(&env, PORT) {
             panic_with_error!(&env, Error::UnknownSourcePort);
         }
+
+        let packet = decode_packet(&env, &callback.payload.encoding, &callback.payload.value);
+
+        let result = GmpAcknowledged {
+            source_client: callback.source_client,
+            dest_client: callback.dest_client,
+            sequence: callback.sequence,
+            success: !results::is_error_acknowledgement(&env, &callback.acknowledgement),
+            acknowledgement: callback.acknowledgement,
+        };
+
+        results::acknowledged(&env, &packet.sender, result);
     }
 
     #[only_admin]
@@ -75,5 +84,15 @@ impl Ics04 for IbcGmpApp {
         if callback.payload.source_port != String::from_str(&env, PORT) {
             panic_with_error!(&env, Error::UnknownSourcePort);
         }
+
+        let packet = decode_packet(&env, &callback.payload.encoding, &callback.payload.value);
+
+        let result = GmpTimedOut {
+            source_client: callback.source_client,
+            dest_client: callback.dest_client,
+            sequence: callback.sequence,
+        };
+
+        results::timed_out(&env, &packet.sender, result);
     }
 }
