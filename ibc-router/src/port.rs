@@ -9,6 +9,8 @@ use crate::{
 pub trait Port {
     fn register_port(env: &Env, port_id: String, app_address: Address);
 
+    fn reassign_port(env: &Env, port_id: String, app_address: Address);
+
     fn port_app(env: &Env, port_id: String) -> Option<Address>;
 }
 
@@ -20,6 +22,15 @@ impl Port for IbcRouter {
         let key = DataKey::Port(port_id);
         if env.storage().persistent().has(&key) {
             panic_with_error!(env, Error::PortAlreadyRegistered);
+        }
+        env.storage().persistent().set(&key, &app_address);
+    }
+
+    #[only_owner]
+    fn reassign_port(env: &Env, port_id: String, app_address: Address) {
+        let key = DataKey::Port(port_id);
+        if !env.storage().persistent().has(&key) {
+            panic_with_error!(env, Error::PortNotRegistered);
         }
         env.storage().persistent().set(&key, &app_address);
     }

@@ -41,3 +41,28 @@ fn register_port_rejects_duplicate() {
     let result = router.try_register_port(&port_id, &app_b);
     assert_eq!(result, Err(Ok(Error::PortAlreadyRegistered.into())));
 }
+
+#[test]
+fn reassign_port_moves_a_registered_port_to_a_new_app() {
+    let (env, _router_id, router, _lc_id) = setup();
+    let old_app = Address::generate(&env);
+    let new_app = Address::generate(&env);
+    let port_id = String::from_str(&env, "gmpport");
+
+    router.register_port(&port_id, &old_app);
+    router.reassign_port(&port_id, &new_app);
+
+    assert_eq!(router.port_app(&port_id).unwrap(), new_app);
+}
+
+#[test]
+fn reassign_port_rejects_an_unregistered_port() {
+    let (env, _router_id, router, _lc_id) = setup();
+    let app = Address::generate(&env);
+    let port_id = String::from_str(&env, "gmpport");
+
+    let result = router.try_reassign_port(&port_id, &app);
+
+    assert_eq!(result, Err(Ok(Error::PortNotRegistered.into())));
+    assert!(router.port_app(&port_id).is_none());
+}

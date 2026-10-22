@@ -50,4 +50,5 @@ pub enum Error {
     LightClientNotInitialised = 24,
     ProvableSlotTaken = 25,
     ProvableStoreCorrupt = 26,
+    MultiplePayloadsNotSupported = 27,
 }

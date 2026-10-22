@@ -25,7 +25,7 @@ combined with the `ICS02ClientUpgradeable` (client registry) and
 
 | Caller | Calls |
 |---|---|
-| Off-chain admin (deploy + bootstrap) | `__constructor`, `register_client_type`, `register_counterparty`, `register_port`, `migrate_client`, `upgrade` |
+| Off-chain admin (deploy + bootstrap) | `__constructor`, `register_client_type`, `register_counterparty`, `register_port`, `reassign_port`, `migrate_client`, `upgrade` |
 | IBC application contracts (e.g. `IbcTransferApp`) | `send_packet` (to mint a sequence + commit) |
 | Relayer (via the gateway's `StellarGatewayMsg`) | `update_client`, `recv_packet`, `acknowledge_packet`, `timeout_packet` |
 | Light-client contracts | Called *by* the router into them — not the reverse |
@@ -73,6 +73,7 @@ combined with the `ICS02ClientUpgradeable` (client registry) and
 **Port router (ICS-05):**
 - `register_port(port_id, app_address)` — app proves it owns itself via
   `require_auth`.
+- `reassign_port(port_id, app_address)` — owner-only; moves a registered port to a new app, for an app that cannot be upgraded in place. Packets already sent from the old app are acknowledged to the new one.
 - `port_app(port_id) -> Option<Address>`
 
 **Provable storage (ICS-24), read-only:**
@@ -154,6 +155,12 @@ every leaf of the tree.
          v
    [relayer picks up ack proof, calls AckPacket on source chain]
 ```
+
+### When the application fails
+
+The router calls the application's `on_recv_packet` with `try_invoke_contract`. If the application fails, everything it changed is rolled back, the receipt is still stored, and the acknowledgement is IBC v2's universal error acknowledgement (`sha256("UNIVERSAL_ERROR_ACKNOWLEDGEMENT")`). The source chain then refunds or reports the failure. Without this, a failing application would revert the whole receive transaction and the packet could only time out.
+
+Received packets must carry exactly one payload, as on the Solidity router. With several, one failing payload could not roll back the others, so `recv_packet` refuses them with `MultiplePayloadsNotSupported`.
 
 ## Storage shape
 

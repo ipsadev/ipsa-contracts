@@ -294,6 +294,10 @@ fn get_port_app(env: &Env, port_id: &String) -> Address {
 }
 
 fn dispatch_recv_callbacks(env: &Env, packet: &Packet) -> Vec<Bytes> {
+    if packet.payloads.len() > 1 {
+        panic_with_error!(env, Error::MultiplePayloadsNotSupported);
+    }
+
     let mut acks: Vec<Bytes> = Vec::new(env);
     for payload in packet.payloads.iter() {
         let app = get_port_app(env, &payload.dest_port);
@@ -303,11 +307,14 @@ fn dispatch_recv_callbacks(env: &Env, packet: &Packet) -> Vec<Bytes> {
             sequence: packet.sequence,
             payload,
         };
-        let ack: Bytes = env.invoke_contract(
+        let ack = match env.try_invoke_contract::<Bytes, soroban_sdk::Error>(
             &app,
             &Symbol::new(env, "on_recv_packet"),
             vec![env, cb.into_val(env)],
-        );
+        ) {
+            Ok(Ok(ack)) => ack,
+            _ => error_ack_hash(env).into(),
+        };
         acks.push_back(ack);
     }
     if acks.is_empty() {
