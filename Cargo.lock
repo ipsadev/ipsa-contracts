@@ -2000,7 +2000,7 @@ dependencies = [
 
 [[package]]
 name = "stellar-sp1-ethereum-light-client"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "soroban-sdk",
  "stellar-access",
@@ -2010,7 +2010,7 @@ dependencies = [
 
 [[package]]
 name = "stellar-sp1-verifier"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "soroban-sdk",
 ]
