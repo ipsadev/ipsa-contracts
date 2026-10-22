@@ -1953,7 +1953,9 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "stellar-access",
+ "stellar-ibc-router",
  "stellar-macros",
+ "stellar-mock-light-client",
 ]
 
 [[package]]

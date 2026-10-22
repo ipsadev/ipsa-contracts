@@ -18,4 +18,5 @@ pub enum Error {
     PayloadTooLong = 12,
     MemoTooLong = 13,
     TargetIsRouter = 14,
+    ReceiverMismatch = 15,
 }

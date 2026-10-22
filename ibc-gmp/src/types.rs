@@ -76,6 +76,7 @@ pub struct GmpAcknowledged {
     pub dest_client: String,
     pub sequence: u64,
     pub success: bool,
+    pub result: Bytes,
     pub acknowledgement: Bytes,
 }
 

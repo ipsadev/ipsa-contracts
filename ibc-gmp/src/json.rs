@@ -275,3 +275,78 @@ fn append_string(env: &Env, out: &mut Bytes, value: &String) {
 
     out.append(&Bytes::from_slice(env, &buf[..len]));
 }
+
+pub fn encode_acknowledgement(env: &Env, result: &Bytes) -> Bytes {
+    let mut out = Bytes::new(env);
+
+    if result.is_empty() {
+        append(env, &mut out, b"{}");
+
+        return out;
+    }
+
+    append(env, &mut out, b"{\"result\":\"");
+    append_base64(env, &mut out, result);
+    append(env, &mut out, b"\"}");
+
+    out
+}
+
+pub fn decode_acknowledgement(env: &Env, value: &Bytes) -> Option<Bytes> {
+    const PREFIX: &[u8] = b"{\"result\":\"";
+    const SUFFIX: &[u8] = b"\"}";
+
+    let length = value.len() as usize;
+
+    if length > MAX_JSON_BYTES {
+        return None;
+    }
+
+    let mut buffer = [0u8; MAX_JSON_BYTES];
+    value.copy_into_slice(&mut buffer[..length]);
+    let source = &buffer[..length];
+
+    if source == b"{}" {
+        return Some(Bytes::new(env));
+    }
+
+    if length < PREFIX.len() + SUFFIX.len()
+        || !source.starts_with(PREFIX)
+        || !source.ends_with(SUFFIX)
+    {
+        return None;
+    }
+
+    try_base64_decode(env, &source[PREFIX.len()..length - SUFFIX.len()])
+}
+
+fn try_base64_decode(env: &Env, source: &[u8]) -> Option<Bytes> {
+    let mut out = Bytes::new(env);
+    let mut accumulator: u32 = 0;
+    let mut bits = 0u32;
+
+    for byte in source {
+        if *byte == b'=' {
+            break;
+        }
+
+        let value = match byte {
+            b'A'..=b'Z' => u32::from(byte - b'A'),
+            b'a'..=b'z' => u32::from(byte - b'a') + 26,
+            b'0'..=b'9' => u32::from(byte - b'0') + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        };
+
+        accumulator = (accumulator << 6) | value;
+        bits += 6;
+
+        if bits >= 8 {
+            bits -= 8;
+            out.push_back(((accumulator >> bits) & 0xff) as u8);
+        }
+    }
+
+    Some(out)
+}

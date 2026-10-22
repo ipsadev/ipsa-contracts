@@ -12,6 +12,7 @@ mod ics04;
 mod ics27;
 mod json;
 mod limits;
+mod protobuf;
 mod results;
 mod storage;
 mod types;
@@ -31,6 +32,7 @@ pub(crate) const VERSION: &str = "ics27-2";
 pub(crate) const ENCODING: &str = "application/x-soroban-xdr";
 pub(crate) const ENCODING_JSON: &str = "application/json";
 pub(crate) const ENCODING_SOLIDITY_ABI: &str = "application/x-solidity-abi";
+pub(crate) const ENCODING_PROTOBUF: &str = "application/x-protobuf";
 
 #[contract]
 pub struct IbcGmpApp;

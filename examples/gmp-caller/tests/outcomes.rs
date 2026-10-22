@@ -115,6 +115,25 @@ fn acknowledge(f: &Fixture, packet: &Packet, acknowledgement: Bytes) {
     );
 }
 
+fn abi_word(env: &Env, value: u32) -> Bytes {
+    let mut word = [0u8; 32];
+    word[28..].copy_from_slice(&value.to_be_bytes());
+
+    Bytes::from_array(env, &word)
+}
+
+fn abi_acknowledgement(env: &Env, result: &Bytes) -> Bytes {
+    let mut out = abi_word(env, 32);
+    let padding = (32 - result.len() % 32) % 32;
+
+    out.append(&abi_word(env, 32));
+    out.append(&abi_word(env, result.len()));
+    out.append(result);
+    out.append(&Bytes::from_slice(env, &[0u8; 32][..padding as usize]));
+
+    out
+}
+
 fn error_acknowledgement(env: &Env) -> Bytes {
     let hash = env
         .crypto()
@@ -142,8 +161,9 @@ fn a_successful_call_is_recorded_with_its_result() {
     let f = setup();
     let (sequence, packet) = send(&f);
     let result = Bytes::from_slice(&f.env, b"result");
+    let acknowledgement = abi_acknowledgement(&f.env, &result);
 
-    acknowledge(&f, &packet, result.clone());
+    acknowledge(&f, &packet, acknowledgement.clone());
 
     let Some(Outcome::Acknowledged(acknowledged)) = f.caller.outcome(&f.client_id, &sequence)
     else {
@@ -151,7 +171,8 @@ fn a_successful_call_is_recorded_with_its_result() {
     };
 
     assert!(acknowledged.success);
-    assert_eq!(acknowledged.acknowledgement, result);
+    assert_eq!(acknowledged.result, result);
+    assert_eq!(acknowledged.acknowledgement, acknowledgement);
 }
 
 #[test]
@@ -203,6 +224,7 @@ fn a_callback_from_another_contract_is_refused() {
         dest_client: f.counterparty_id.clone(),
         sequence: 1,
         success: true,
+        result: Bytes::new(&f.env),
         acknowledgement: Bytes::new(&f.env),
     };
 

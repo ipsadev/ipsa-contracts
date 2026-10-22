@@ -68,6 +68,41 @@ pub fn encode_acknowledgement(env: &Env, result: &Bytes) -> Bytes {
     out
 }
 
+pub fn decode_acknowledgement(value: &Bytes) -> Option<Bytes> {
+    if try_number(value, 0)? != WORD || try_number(value, WORD)? != WORD {
+        return None;
+    }
+
+    let length = try_number(value, 2 * WORD)?;
+    let start = 3 * WORD;
+    let end = start.checked_add(length)?;
+
+    if end > value.len() {
+        return None;
+    }
+
+    Some(value.slice(start..end))
+}
+
+fn try_number(source: &Bytes, at: u32) -> Option<u32> {
+    let end = at.checked_add(WORD)?;
+
+    if end > source.len() {
+        return None;
+    }
+
+    let mut bytes = [0u8; WORD as usize];
+    source.slice(at..end).copy_into_slice(&mut bytes);
+
+    if bytes[..28].iter().any(|byte| *byte != 0) {
+        return None;
+    }
+
+    Some(u32::from_be_bytes([
+        bytes[28], bytes[29], bytes[30], bytes[31],
+    ]))
+}
+
 fn word(env: &Env, value: u32) -> Bytes {
     let mut bytes = [0u8; WORD as usize];
     bytes[28..].copy_from_slice(&value.to_be_bytes());

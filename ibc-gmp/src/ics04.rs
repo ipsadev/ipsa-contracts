@@ -3,7 +3,7 @@ use stellar_macros::only_admin;
 
 use crate::{
     account,
-    encoding::{decode_call, decode_packet, encode_acknowledgement},
+    encoding::{decode_acknowledgement, decode_call, decode_packet, encode_acknowledgement},
     errors::Error,
     limits, results, storage,
     types::{
@@ -38,6 +38,10 @@ impl Ics04 for IbcGmpApp {
 
         let call = decode_call(&env, &packet.payload);
 
+        if !packet.receiver.is_empty() && packet.receiver != call.target.to_string() {
+            panic_with_error!(&env, Error::ReceiverMismatch);
+        }
+
         if let Some(router) = storage::router(&env) {
             if call.target == router {
                 panic_with_error!(&env, Error::TargetIsRouter);
@@ -68,11 +72,19 @@ impl Ics04 for IbcGmpApp {
 
         let packet = decode_packet(&env, &callback.payload.encoding, &callback.payload.value);
 
+        let success = !results::is_error_acknowledgement(&env, &callback.acknowledgement);
+        let decoded = if success {
+            decode_acknowledgement(&env, &callback.payload.encoding, &callback.acknowledgement)
+        } else {
+            None
+        };
+
         let result = GmpAcknowledged {
             source_client: callback.source_client,
             dest_client: callback.dest_client,
             sequence: callback.sequence,
-            success: !results::is_error_acknowledgement(&env, &callback.acknowledgement),
+            success,
+            result: decoded.unwrap_or_else(|| Bytes::new(&env)),
             acknowledgement: callback.acknowledgement,
         };
 
