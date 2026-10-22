@@ -129,3 +129,85 @@ pub fn recv_packet_for(f: &PacketFlow, sequence: u64, value: &[u8]) -> Packet {
         payloads: vec![&f.env, payload],
     }
 }
+
+#[contract]
+pub struct ElapsedLightClient;
+
+#[contractimpl]
+impl ElapsedLightClient {
+    pub fn initialise(
+        _env: Env,
+        _client_id: String,
+        _client_state: Bytes,
+        _consensus_state: Bytes,
+        _height: u64,
+    ) {
+    }
+
+    pub fn check_for_misbehaviour(_env: Env, _client_id: String, _client_message: Bytes) -> bool {
+        false
+    }
+
+    pub fn update_state(_env: Env, _client_id: String, _client_message: Bytes) -> u64 {
+        7
+    }
+
+    pub fn verify_membership(
+        _env: Env,
+        _client_id: String,
+        _height: u64,
+        _proof: Bytes,
+        _path: Bytes,
+        _value: Bytes,
+    ) -> bool {
+        true
+    }
+
+    pub fn verify_non_membership(
+        _env: Env,
+        _client_id: String,
+        _height: u64,
+        _proof: Bytes,
+        _path: Bytes,
+    ) -> bool {
+        true
+    }
+
+    pub fn get_timestamp_at_height(_env: Env, _client_id: String, _height: u64) -> u64 {
+        ELAPSED_TIMESTAMP
+    }
+}
+
+pub const ELAPSED_TIMESTAMP: u64 = 1_000_000;
+
+pub fn setup_elapsed_packet_flow() -> PacketFlow {
+    let mut f = setup_packet_flow();
+    let client_type = String::from_str(&f.env, "elapsed");
+    let light_client = f.env.register(ElapsedLightClient, ());
+
+    f.router.register_client_type(&client_type, &light_client);
+
+    let client_id = f.router.create_client(
+        &client_type,
+        &Bytes::from_slice(&f.env, b"cs"),
+        &Bytes::from_slice(&f.env, b"cons"),
+        &1,
+    );
+    let prefix = vec![&f.env, Bytes::from_slice(&f.env, b"ibc")];
+
+    f.router
+        .register_counterparty(&client_id, &f.counterparty_client_id, &prefix);
+    f.client_id = client_id;
+
+    f
+}
+
+pub fn sent_packet(f: &PacketFlow, sequence: u64, timeout_timestamp: u64, value: &[u8]) -> Packet {
+    Packet {
+        sequence,
+        source_client: f.client_id.clone(),
+        dest_client: f.counterparty_client_id.clone(),
+        timeout_timestamp,
+        payloads: vec![&f.env, mk_payload(&f.env, &f.port_id, value)],
+    }
+}

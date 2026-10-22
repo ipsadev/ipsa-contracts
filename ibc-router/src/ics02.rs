@@ -5,7 +5,10 @@ use stellar_macros::only_owner;
 
 use crate::{
     errors::Error,
-    events::ClientMigrated,
+    events::{
+        ClientCreated, ClientFrozen, ClientMigrated, ClientTypeRegistered, ClientUpdated,
+        CounterpartyRegistered,
+    },
     identifiers::{validate_client_type, validate_counterparty_client_id},
     types::{Counterparty, DataKey},
     IbcRouter, IbcRouterArgs, IbcRouterClient,
@@ -55,9 +58,16 @@ impl Ics02 for IbcRouter {
     fn register_client_type(env: &Env, client_type: String, light_client_address: Address) {
         validate_client_type(env, &client_type);
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::ClientTypeAddr(client_type), &light_client_address);
+        env.storage().persistent().set(
+            &DataKey::ClientTypeAddr(client_type.clone()),
+            &light_client_address,
+        );
+
+        ClientTypeRegistered {
+            client_type,
+            light_client: light_client_address,
+        }
+        .publish(env);
     }
 
     fn client_type_address(env: &Env, client_type: String) -> Option<Address> {
@@ -98,6 +108,14 @@ impl Ics02 for IbcRouter {
             &DataKey::LightClient(client_id.clone()),
             &light_client_address,
         );
+
+        ClientCreated {
+            client_id: client_id.clone(),
+            client_type,
+            height,
+        }
+        .publish(env);
+
         client_id
     }
 
@@ -124,12 +142,18 @@ impl Ics02 for IbcRouter {
             panic_with_error!(env, Error::CounterpartyAlreadyRegistered);
         }
         let cp = Counterparty {
-            client_id: counterparty_client_id,
+            client_id: counterparty_client_id.clone(),
             commitment_prefix: counterparty_commitment_prefix,
         };
         env.storage()
             .persistent()
-            .set(&DataKey::Counterparty(client_id), &cp);
+            .set(&DataKey::Counterparty(client_id.clone()), &cp);
+
+        CounterpartyRegistered {
+            client_id,
+            counterparty_client_id,
+        }
+        .publish(env);
     }
 
     fn counterparty(env: &Env, client_id: String) -> Option<Counterparty> {
@@ -178,17 +202,27 @@ impl Ics02 for IbcRouter {
             );
             env.storage()
                 .persistent()
-                .set(&DataKey::Frozen(client_id), &true);
+                .set(&DataKey::Frozen(client_id.clone()), &true);
+
+            ClientFrozen { client_id }.publish(env);
+
             return 0;
         }
 
-        let args: Vec<Val> =
-            soroban_sdk::vec![env, client_id.into_val(env), client_message.into_val(env),];
-        env.invoke_contract(
+        let args: Vec<Val> = soroban_sdk::vec![
+            env,
+            client_id.clone().into_val(env),
+            client_message.into_val(env),
+        ];
+        let height: u64 = env.invoke_contract(
             &light_client_address,
             &Symbol::new(env, "update_state"),
             args,
-        )
+        );
+
+        ClientUpdated { client_id, height }.publish(env);
+
+        height
     }
 
     fn light_client_address(env: &Env, client_id: String) -> Option<Address> {

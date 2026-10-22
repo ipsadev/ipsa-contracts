@@ -7,7 +7,7 @@ use crate::{
     events::{AckPacket, RecvPacket, SendPacket, TimeoutPacket, WriteAck},
     ics02::Ics02,
     ics24::{commit_v2_acknowledgement, commit_v2_packet, error_ack_hash},
-    port::Port,
+    port::{self, Port},
     smt, storage,
     types::{
         Counterparty, DataKey, OnAcknowledgementPacketCallback, OnRecvPacketCallback,
@@ -25,13 +25,6 @@ pub trait Ics04 {
     ) -> u64;
 
     fn recv_packet(env: &Env, packet: Packet, proof: Bytes, proof_height: u64);
-
-    fn write_acknowledgement(
-        env: &Env,
-        dest_client_id: String,
-        sequence: u64,
-        acknowledgements: Vec<Bytes>,
-    );
 
     fn acknowledge_packet(
         env: &Env,
@@ -56,6 +49,10 @@ impl Ics04 for IbcRouter {
             panic_with_error!(env, Error::PayloadsEmpty);
         }
 
+        if payloads.len() > 1 {
+            panic_with_error!(env, Error::MultiplePayloadsNotSupported);
+        }
+
         let counterparty = get_counterparty(env, &source_client_id);
         active_light_client(env, &source_client_id);
 
@@ -66,6 +63,7 @@ impl Ics04 for IbcRouter {
         for payload in payloads.iter() {
             let app = get_port_app(env, &payload.source_port);
             app.require_auth();
+            port::add_packet_in_flight(env, &payload.source_port);
         }
 
         let seq_key = DataKey::NextSeqSend(source_client_id.clone());
@@ -154,31 +152,6 @@ impl Ics04 for IbcRouter {
         .publish(env);
     }
 
-    fn write_acknowledgement(
-        env: &Env,
-        dest_client_id: String,
-        sequence: u64,
-        acknowledgements: Vec<Bytes>,
-    ) {
-        if !storage::has_packet_receipt(env, &dest_client_id, sequence) {
-            panic_with_error!(env, Error::NoReceiptForSequence);
-        }
-        if storage::acknowledgement(env, &dest_client_id, sequence).is_some() {
-            panic_with_error!(env, Error::AckAlreadyExists);
-        }
-
-        let ack_hash = commit_v2_acknowledgement(env, &acknowledgements);
-        storage::set_ack_commitment(env, &dest_client_id, sequence, &ack_hash);
-        smt::commit(env);
-
-        WriteAck {
-            client_id: dest_client_id,
-            sequence,
-            acknowledgements,
-        }
-        .publish(env);
-    }
-
     fn acknowledge_packet(
         env: &Env,
         packet: Packet,
@@ -215,6 +188,7 @@ impl Ics04 for IbcRouter {
         );
 
         dispatch_ack_callbacks(env, &packet, &acknowledgements);
+        retire_packets_in_flight(env, &packet);
 
         storage::delete_packet_commitment(env, &packet.source_client, packet.sequence);
         smt::commit(env);
@@ -265,6 +239,7 @@ impl Ics04 for IbcRouter {
         verify_non_membership(env, &packet.source_client, proof_height, &proof, &cp_path);
 
         dispatch_timeout_callbacks(env, &packet);
+        retire_packets_in_flight(env, &packet);
 
         storage::delete_packet_commitment(env, &packet.source_client, packet.sequence);
         smt::commit(env);
@@ -284,6 +259,12 @@ fn get_counterparty(env: &Env, client_id: &String) -> Counterparty {
     storage::extend_config(env, &DataKey::Counterparty(client_id.clone()));
     storage::extend_config(env, &DataKey::LightClient(client_id.clone()));
     counterparty
+}
+
+fn retire_packets_in_flight(env: &Env, packet: &Packet) {
+    for payload in packet.payloads.iter() {
+        port::retire_packet_in_flight(env, &payload.source_port);
+    }
 }
 
 fn get_port_app(env: &Env, port_id: &String) -> Address {

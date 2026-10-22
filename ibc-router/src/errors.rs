@@ -51,4 +51,5 @@ pub enum Error {
     ProvableSlotTaken = 25,
     ProvableStoreCorrupt = 26,
     MultiplePayloadsNotSupported = 27,
+    PortHasPacketsInFlight = 28,
 }

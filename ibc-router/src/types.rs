@@ -45,6 +45,7 @@ pub enum DataKey {
     Frozen(String),
     Port(String),
     NextSeqSend(String),
+    PortPacketsInFlight(String),
 }
 
 #[contracttype]

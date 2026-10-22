@@ -16,7 +16,11 @@ mod storage;
 mod types;
 
 pub use errors::Error;
-pub use events::{AckPacket, ClientMigrated, RecvPacket, SendPacket, TimeoutPacket, WriteAck};
+pub use events::{
+    AckPacket, ClientCreated, ClientFrozen, ClientMigrated, ClientTypeRegistered, ClientUpdated,
+    CounterpartyRegistered, PortReassigned, PortRegistered, PortRemoved, RecvPacket, SendPacket,
+    TimeoutPacket, WriteAck,
+};
 pub use types::{
     Counterparty, DataKey, Height, OnAcknowledgementPacketCallback, OnRecvPacketCallback,
     OnTimeoutPacketCallback, Packet, Payload,

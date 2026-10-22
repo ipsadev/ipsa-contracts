@@ -61,6 +61,71 @@ pub struct IbcRoot {
 
 #[contractevent]
 #[derive(Clone)]
+pub struct ClientTypeRegistered {
+    #[topic]
+    pub client_type: String,
+    pub light_client: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ClientCreated {
+    #[topic]
+    pub client_id: String,
+    pub client_type: String,
+    pub height: u64,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct CounterpartyRegistered {
+    #[topic]
+    pub client_id: String,
+    pub counterparty_client_id: String,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ClientUpdated {
+    #[topic]
+    pub client_id: String,
+    pub height: u64,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ClientFrozen {
+    #[topic]
+    pub client_id: String,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct PortRegistered {
+    #[topic]
+    pub port_id: String,
+    pub app: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct PortReassigned {
+    #[topic]
+    pub port_id: String,
+    pub previous_app: Address,
+    pub app: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct PortRemoved {
+    #[topic]
+    pub port_id: String,
+    pub previous_app: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
 pub struct ClientMigrated {
     #[topic]
     pub client_id: String,

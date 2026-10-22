@@ -119,32 +119,6 @@ fn recv_packet_rejects_wrong_counterparty() {
 }
 
 #[test]
-fn write_acknowledgement_after_recv_rejects_duplicate() {
-    let f = setup_packet_flow();
-    let packet = recv_packet_for(&f, 1, b"hello");
-    f.router
-        .recv_packet(&packet, &Bytes::from_slice(&f.env, b"proof"), &10);
-
-    let result = f.router.try_write_acknowledgement(
-        &f.client_id,
-        &1,
-        &vec![&f.env, Bytes::from_slice(&f.env, b"more")],
-    );
-    assert_eq!(result, Err(Ok(Error::AckAlreadyExists.into())));
-}
-
-#[test]
-fn write_acknowledgement_rejects_when_no_receipt() {
-    let f = setup_packet_flow();
-    let result = f.router.try_write_acknowledgement(
-        &f.client_id,
-        &1,
-        &vec![&f.env, Bytes::from_slice(&f.env, b"ack")],
-    );
-    assert_eq!(result, Err(Ok(Error::NoReceiptForSequence.into())));
-}
-
-#[test]
 fn acknowledge_packet_clears_commitment() {
     let f = setup_packet_flow();
     let payload = mk_payload(&f.env, &f.port_id, b"hello");
@@ -188,7 +162,7 @@ fn acknowledge_packet_rejects_when_no_commitment() {
 }
 
 #[test]
-fn timeout_packet_clears_commitment_when_elapsed() {
+fn timeout_packet_is_refused_before_the_counterparty_passes_the_timeout() {
     let f = setup_packet_flow();
     let payload = mk_payload(&f.env, &f.port_id, b"hello");
     let seq = f

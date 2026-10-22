@@ -18,14 +18,15 @@ combined with the `ICS02ClientUpgradeable` (client registry) and
   receipts, and ack commitments — keyed by the literal v2 path bytes
   (`{client_id} || disc || be64(seq)`) so the gateway's SMT mirror can re-key
   them without any router-internal knowledge.
-- Implements the five packet-lifecycle entrypoints: `send_packet`,
-  `recv_packet`, `write_acknowledgement`, `acknowledge_packet`, `timeout_packet`.
+- Implements the four packet-lifecycle entrypoints: `send_packet`,
+  `recv_packet`, `acknowledge_packet`, `timeout_packet`. The acknowledgement is
+  written inside `recv_packet`, so there is no separate `write_acknowledgement`.
 
 ## Who calls it
 
 | Caller | Calls |
 |---|---|
-| Off-chain admin (deploy + bootstrap) | `__constructor`, `register_client_type`, `register_counterparty`, `register_port`, `reassign_port`, `migrate_client`, `upgrade` |
+| Off-chain admin (deploy + bootstrap) | `__constructor`, `register_client_type`, `register_counterparty`, `register_port`, `reassign_port`, `remove_port`, `migrate_client`, `upgrade` |
 | IBC application contracts (e.g. `IbcTransferApp`) | `send_packet` (to mint a sequence + commit) |
 | Relayer (via the gateway's `StellarGatewayMsg`) | `update_client`, `recv_packet`, `acknowledge_packet`, `timeout_packet` |
 | Light-client contracts | Called *by* the router into them — not the reverse |
@@ -34,17 +35,21 @@ combined with the `ICS02ClientUpgradeable` (client registry) and
 ## Entrypoints
 
 **Client lifecycle (ICS-02):**
-- `register_client_type(client_type, lc_address)` — admin pins an LC contract
-  address under a client_type string.
-- `lc_address(client_type) -> Option<Address>`
+- `register_client_type(client_type, light_client_address)` — owner-only; pins a
+  light client contract address under a client_type string. Emits
+  `ClientTypeRegistered`.
+- `client_type_address(client_type) -> Option<Address>`
 - `create_client(client_type, client_state, consensus_state, height) -> client_id`
-  — mints `{client_type}-{N}`, invokes the LC's `initialise`.
+  — mints `{client_type}-{N}`, invokes the light client's `initialise`, emits
+  `ClientCreated`.
 - `register_counterparty(client_id, counterparty_client_id, prefix: Vec<Bytes>)`
-  — ICS-2 §RegisterCounterparty; rejects duplicate.
+  — owner-only; ICS-2 §RegisterCounterparty; rejects duplicate. Emits
+  `CounterpartyRegistered`.
 - `counterparty(client_id) -> Option<Counterparty>`
 - `update_client(client_id, client_message) -> u64` — checks LC misbehaviour,
-  dispatches to `update_state` or `update_state_on_misbehaviour`.
-- `client_lc_address(client_id) -> Option<Address>`
+  dispatches to `update_state` or `update_state_on_misbehaviour`. Emits
+  `ClientUpdated` with the new height, or `ClientFrozen` on misbehaviour.
+- `light_client_address(client_id) -> Option<Address>`
 - `frozen(client_id) -> bool`
 - `migrate_client(client_id, light_client_address, client_state, consensus_state, height)`
   — owner-only; ICS-02's `migrateClient`, as the Solidity `ICS26Router` has it.
@@ -71,10 +76,21 @@ combined with the `ICS02ClientUpgradeable` (client registry) and
 - `upgrade(wasm_hash)` — owner-only; replaces this contract's code in place.
 
 **Port router (ICS-05):**
-- `register_port(port_id, app_address)` — app proves it owns itself via
-  `require_auth`.
-- `reassign_port(port_id, app_address)` — owner-only; moves a registered port to a new app, for an app that cannot be upgraded in place. Packets already sent from the old app are acknowledged to the new one.
+Ports are bound by the router owner, so nobody can claim a port name another
+application expects. Only the application bound to a port can send on it:
+`send_packet` calls `require_auth` on the port's application for every payload.
+
+- `register_port(port_id, app_address)` — owner-only; binds a new port. Emits
+  `PortRegistered`.
+- `reassign_port(port_id, app_address)` — owner-only; moves a registered port to a new app, for an app that cannot be upgraded in place. Packets already sent from the old app are acknowledged to the new one. Emits `PortReassigned`.
+- `remove_port(port_id)` — owner-only; unbinds a port. Refused with
+  `PortHasPacketsInFlight` while any packet sent on the port is still waiting for
+  its acknowledgement or timeout, because those callbacks need the application.
+  Emits `PortRemoved`.
 - `port_app(port_id) -> Option<Address>`
+- `port_packets_in_flight(port_id) -> u64` — packets sent on the port and not yet
+  acknowledged or timed out. Counting started with this version: packets sent by
+  an earlier router are not counted.
 
 **Provable storage (ICS-24), read-only:**
 - `packet_commitment`
@@ -103,7 +119,6 @@ every leaf of the tree.
 **Packet lifecycle (ICS-04 / ICS-26):**
 - `send_packet(source_client_id, timeout_timestamp, payloads) -> sequence`
 - `recv_packet(packet, proof, proof_height)`
-- `write_acknowledgement(dest_client_id, sequence, acks)`
 - `acknowledge_packet(packet, acks, proof, proof_height)`
 - `timeout_packet(packet, proof, proof_height)`
 
@@ -160,7 +175,7 @@ every leaf of the tree.
 
 The router calls the application's `on_recv_packet` with `try_invoke_contract`. If the application fails, everything it changed is rolled back, the receipt is still stored, and the acknowledgement is IBC v2's universal error acknowledgement (`sha256("UNIVERSAL_ERROR_ACKNOWLEDGEMENT")`). The source chain then refunds or reports the failure. Without this, a failing application would revert the whole receive transaction and the packet could only time out.
 
-Received packets must carry exactly one payload, as on the Solidity router. With several, one failing payload could not roll back the others, so `recv_packet` refuses them with `MultiplePayloadsNotSupported`.
+Packets carry exactly one payload, as on the Solidity router. With several, one failing payload could not roll back the others, so both `send_packet` and `recv_packet` refuse them with `MultiplePayloadsNotSupported`. The `Packet` type keeps a list of payloads so the wire format does not change when this limit is lifted.
 
 ## Storage shape
 
