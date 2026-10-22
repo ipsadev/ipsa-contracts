@@ -2007,7 +2007,7 @@ dependencies = [
 
 [[package]]
 name = "stellar-sp1-ethereum-light-client"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "soroban-sdk",
  "stellar-access",
@@ -2017,7 +2017,7 @@ dependencies = [
 
 [[package]]
 name = "stellar-sp1-verifier"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "soroban-sdk",
 ]
