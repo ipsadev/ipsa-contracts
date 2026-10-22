@@ -1091,6 +1091,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ipsa-gmp-caller"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "stellar-access",
+ "stellar-ibc-gmp",
+ "stellar-ibc-router",
+ "stellar-macros",
+ "stellar-mock-light-client",
+]
+
+[[package]]
 name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

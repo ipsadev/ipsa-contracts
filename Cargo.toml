@@ -4,6 +4,7 @@ members = [
     "ibc-transfer",
     "ibc-gmp",
     "gmp-account",
+    "examples/*",
     "ibc-voucher-token",
     "ibc-router",
     "sp1-verifier",
