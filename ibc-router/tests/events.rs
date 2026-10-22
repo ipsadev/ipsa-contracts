@@ -13,7 +13,7 @@ use stellar_ibc_router::{
 #[test]
 fn client_lifecycle_publishes_events() {
     let (env, router_id, router, light_client) = setup();
-    let client_type = String::from_str(&env, "mock");
+    let client_type = String::from_str(&env, "test");
     let client_id = router.create_client(
         &client_type,
         &Bytes::from_slice(&env, b"cs"),

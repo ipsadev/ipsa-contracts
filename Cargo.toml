@@ -1,10 +1,10 @@
 [workspace]
 members = [
     "light-clients/*",
+    "testing/light-client",
     "ibc-transfer",
     "ibc-gmp",
     "gmp-account",
-    "examples/*",
     "ibc-voucher-token",
     "ibc-router",
     "sp1-verifier",
@@ -24,8 +24,9 @@ soroban-sdk = "26.1.0"
 stellar-access = "0.7.2"
 stellar-macros = "0.7.2"
 stellar-tokens = "0.7.2"
+ipsa = { version = "0.1.0", default-features = false }
 
-stellar-mock-light-client = { path = "light-clients/mock" }
+ipsa-test-light-client = { path = "testing/light-client" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -13,8 +13,9 @@ doctest = false
 soroban-sdk = { workspace = true }
 stellar-access = { workspace = true }
 stellar-macros = { workspace = true }
+ipsa = { workspace = true, features = ["types", "ics20"] }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 stellar-ibc-router = { path = "../ibc-router" }
-stellar-mock-light-client = { workspace = true }
+ipsa-test-light-client = { workspace = true }

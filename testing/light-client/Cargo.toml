@@ -1,16 +1,13 @@
 [package]
-name = "stellar-mock-light-client"
+name = "ipsa-test-light-client"
 version = "0.1.0"
 edition = "2021"
 license = { workspace = true }
 publish = false
 
 [lib]
-crate-type = ["lib", "cdylib"]
+crate-type = ["lib"]
 doctest = false
 
 [dependencies]
 soroban-sdk = { workspace = true }
-
-[dev-dependencies]
-soroban-sdk = { workspace = true, features = ["testutils"] }

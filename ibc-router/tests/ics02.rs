@@ -1,15 +1,15 @@
 mod common;
 
 use common::setup;
+use ipsa_test_light_client::TestLightClientClient;
 use soroban_sdk::{testutils::Address as _, vec, Bytes, String};
 use stellar_ibc_router::Error;
-use stellar_mock_light_client::MockLightClientClient;
 
 #[test]
 fn register_client_type_stores_light_client_address() {
     let (env, _router_id, router, lc_id) = setup();
     let resolved = router
-        .client_type_address(&String::from_str(&env, "mock"))
+        .client_type_address(&String::from_str(&env, "test"))
         .unwrap();
     assert_eq!(resolved, lc_id);
 }
@@ -20,14 +20,14 @@ fn create_client_initialises_lc_and_returns_unique_id() {
 
     let cs = Bytes::from_slice(&env, b"client-state");
     let cons = Bytes::from_slice(&env, b"consensus-state");
-    let id1 = router.create_client(&String::from_str(&env, "mock"), &cs, &cons, &1);
-    let id2 = router.create_client(&String::from_str(&env, "mock"), &cs, &cons, &1);
+    let id1 = router.create_client(&String::from_str(&env, "test"), &cs, &cons, &1);
+    let id2 = router.create_client(&String::from_str(&env, "test"), &cs, &cons, &1);
 
     assert_ne!(id1, id2);
-    assert_eq!(id1, String::from_str(&env, "mock-0"));
-    assert_eq!(id2, String::from_str(&env, "mock-1"));
+    assert_eq!(id1, String::from_str(&env, "test-0"));
+    assert_eq!(id2, String::from_str(&env, "test-1"));
 
-    let lc = MockLightClientClient::new(&env, &lc_id);
+    let lc = TestLightClientClient::new(&env, &lc_id);
     assert_eq!(lc.latest_height(&id1), 1);
     assert_eq!(lc.client_state(&id1), cs);
 }
@@ -37,7 +37,7 @@ fn register_counterparty_stores_mapping() {
     let (env, _router_id, router, _lc_id) = setup();
 
     let id = router.create_client(
-        &String::from_str(&env, "mock"),
+        &String::from_str(&env, "test"),
         &Bytes::from_slice(&env, b"cs"),
         &Bytes::from_slice(&env, b"cons"),
         &1,
@@ -56,7 +56,7 @@ fn register_counterparty_stores_mapping() {
 fn register_counterparty_rejects_duplicate() {
     let (env, _router_id, router, _lc_id) = setup();
     let id = router.create_client(
-        &String::from_str(&env, "mock"),
+        &String::from_str(&env, "test"),
         &Bytes::from_slice(&env, b"cs"),
         &Bytes::from_slice(&env, b"cons"),
         &1,
@@ -73,7 +73,7 @@ fn register_counterparty_rejects_duplicate() {
 fn register_counterparty_rejects_unknown_client() {
     let (env, _router_id, router, _lc_id) = setup();
     let result = router.try_register_counterparty(
-        &String::from_str(&env, "mock-999"),
+        &String::from_str(&env, "test-999"),
         &String::from_str(&env, "07-tendermint-0"),
         &vec![&env, Bytes::from_slice(&env, b"ibc")],
     );
@@ -84,7 +84,7 @@ fn register_counterparty_rejects_unknown_client() {
 fn update_client_bumps_height_via_lc() {
     let (env, _router_id, router, lc_id) = setup();
     let id = router.create_client(
-        &String::from_str(&env, "mock"),
+        &String::from_str(&env, "test"),
         &Bytes::from_slice(&env, b"cs"),
         &Bytes::from_slice(&env, b"cons"),
         &5,
@@ -93,7 +93,7 @@ fn update_client_bumps_height_via_lc() {
     let new_h = router.update_client(&id, &Bytes::from_slice(&env, b"msg"));
     assert_eq!(new_h, 6);
     assert_eq!(
-        MockLightClientClient::new(&env, &lc_id).latest_height(&id),
+        TestLightClientClient::new(&env, &lc_id).latest_height(&id),
         6
     );
     assert!(!router.frozen(&id));
@@ -103,7 +103,7 @@ fn update_client_bumps_height_via_lc() {
 fn register_counterparty_requires_authorisation() {
     let (env, _router_id, router, _lc_id) = setup();
     let id = router.create_client(
-        &String::from_str(&env, "mock"),
+        &String::from_str(&env, "test"),
         &Bytes::from_slice(&env, b"cs"),
         &Bytes::from_slice(&env, b"cons"),
         &1,

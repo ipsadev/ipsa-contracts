@@ -17,6 +17,11 @@ mod results;
 mod storage;
 mod types;
 
+pub(crate) use ipsa::gmp::{
+    ENCODING_JSON, ENCODING_PROTOBUF, ENCODING_SOLIDITY_ABI, ENCODING_SOROBAN_XDR as ENCODING,
+    PORT, VERSION,
+};
+
 pub use crate::{
     errors::Error,
     ics04::Ics04,
@@ -26,13 +31,6 @@ pub use crate::{
         OnAcknowledgementPacketCallback, OnRecvPacketCallback, OnTimeoutPacketCallback, Payload,
     },
 };
-
-pub(crate) const PORT: &str = "gmpport";
-pub(crate) const VERSION: &str = "ics27-2";
-pub(crate) const ENCODING: &str = "application/x-soroban-xdr";
-pub(crate) const ENCODING_JSON: &str = "application/json";
-pub(crate) const ENCODING_SOLIDITY_ABI: &str = "application/x-solidity-abi";
-pub(crate) const ENCODING_PROTOBUF: &str = "application/x-protobuf";
 
 #[contract]
 pub struct IbcGmpApp;

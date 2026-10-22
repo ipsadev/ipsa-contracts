@@ -12,7 +12,7 @@ doctest = false
 soroban-sdk = { workspace = true, features = ["testutils"] }
 stellar-ibc-router = { path = "../ibc-router" }
 stellar-ibc-transfer = { path = "../ibc-transfer" }
-stellar-mock-light-client = { path = "../light-clients/mock" }
+ipsa-test-light-client = { path = "../testing/light-client" }
 stellar-tendermint-light-client = { path = "../light-clients/tendermint" }
 ics23 = "0.12"
 prost = "0.13"

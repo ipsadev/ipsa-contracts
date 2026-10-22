@@ -1,9 +1,9 @@
 mod common;
 
 use common::{mk_payload, recv_packet_for, setup_packet_flow, PacketFlow};
+use ipsa_test_light_client::TestLightClient;
 use soroban_sdk::{vec, Bytes, String};
 use stellar_ibc_router::{DataKey, Error, Packet};
-use stellar_mock_light_client::MockLightClient;
 
 fn freeze(f: &PacketFlow) {
     f.env.as_contract(&f.router_id, || {
@@ -97,7 +97,7 @@ fn migrating_a_frozen_client_lets_packets_through_again() {
     let f = setup_packet_flow();
     freeze(&f);
 
-    let replacement = f.env.register(MockLightClient, ());
+    let replacement = f.env.register(TestLightClient, ());
     f.router.migrate_client(
         &f.client_id,
         &replacement,
@@ -118,7 +118,7 @@ fn another_client_is_unaffected_by_a_freeze() {
     freeze(&f);
 
     let other = f.router.create_client(
-        &String::from_str(&f.env, "mock"),
+        &String::from_str(&f.env, "test"),
         &Bytes::from_slice(&f.env, b"cs"),
         &Bytes::from_slice(&f.env, b"cons"),
         &1,

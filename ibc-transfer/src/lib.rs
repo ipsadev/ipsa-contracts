@@ -17,13 +17,19 @@ mod trace;
 mod types;
 mod voucher;
 
+pub(crate) use ipsa::ics20::{PORT, VERSION};
+
 pub use crate::{
+    assets::Assets,
     encoding::{
         address_to_string, decode_packet, decode_packet_abi, decode_payload, encode_ics20_abi,
         encode_ics20_json, encode_payload, ENCODING_JSON, ENCODING_SOLIDITY_ABI,
     },
     errors::Error,
     events::{TransferCredited, TransferRefunded, TransferSent},
+    ics04::Ics04,
+    ics20::Ics20,
+    limits::Limits,
     trace::received_denom,
     types::{
         AssetInfo, AssetKind, FungibleTokenPacketData, OnAcknowledgementPacketCallback,
@@ -31,9 +37,6 @@ pub use crate::{
         TransferReceived, TransferTimedOut,
     },
 };
-
-pub(crate) const PORT: &str = "transfer";
-pub(crate) const VERSION: &str = "ics20-1";
 
 #[contract]
 pub struct IbcTransferApp;

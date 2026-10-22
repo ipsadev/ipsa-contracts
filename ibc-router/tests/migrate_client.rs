@@ -1,13 +1,13 @@
 mod common;
 
 use common::setup;
+use ipsa_test_light_client::{TestLightClient, TestLightClientClient};
 use soroban_sdk::{vec, Bytes, String};
 use stellar_ibc_router::Error;
-use stellar_mock_light_client::{MockLightClient, MockLightClientClient};
 
 fn created(env: &soroban_sdk::Env, router: &stellar_ibc_router::IbcRouterClient) -> String {
     let client_id = router.create_client(
-        &String::from_str(env, "mock"),
+        &String::from_str(env, "test"),
         &Bytes::from_slice(env, b"client-state"),
         &Bytes::from_slice(env, b"consensus-state"),
         &1,
@@ -26,7 +26,7 @@ fn created(env: &soroban_sdk::Env, router: &stellar_ibc_router::IbcRouterClient)
 fn migration_repoints_the_client_and_later_updates_reach_the_new_contract() {
     let (env, _router_id, router, original) = setup();
     let client_id = created(&env, &router);
-    let replacement = env.register(MockLightClient, ());
+    let replacement = env.register(TestLightClient, ());
 
     router.migrate_client(
         &client_id,
@@ -45,7 +45,7 @@ fn migration_repoints_the_client_and_later_updates_reach_the_new_contract() {
 
     assert_eq!(reached, 41);
     assert_eq!(
-        MockLightClientClient::new(&env, &original).latest_height(&client_id),
+        TestLightClientClient::new(&env, &original).latest_height(&client_id),
         1
     );
 }
@@ -55,7 +55,7 @@ fn migration_keeps_the_counterparty() {
     let (env, _router_id, router, _original) = setup();
     let client_id = created(&env, &router);
     let before = router.counterparty(&client_id).expect("registered");
-    let replacement = env.register(MockLightClient, ());
+    let replacement = env.register(TestLightClient, ());
 
     router.migrate_client(
         &client_id,
@@ -75,7 +75,7 @@ fn migration_keeps_the_counterparty() {
 fn a_migration_that_leaves_the_client_uninitialised_is_refused() {
     let (env, _router_id, router, _original) = setup();
     let client_id = created(&env, &router);
-    let replacement = env.register(MockLightClient, ());
+    let replacement = env.register(TestLightClient, ());
 
     let result = router.try_migrate_client(
         &client_id,
@@ -93,7 +93,7 @@ fn an_unknown_client_cannot_be_migrated() {
     let (env, _router_id, router, original) = setup();
 
     let result = router.try_migrate_client(
-        &String::from_str(&env, "mock-9"),
+        &String::from_str(&env, "test-9"),
         &original,
         &Bytes::from_slice(&env, b"client-state"),
         &Bytes::from_slice(&env, b"consensus-state"),

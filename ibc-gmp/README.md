@@ -53,7 +53,7 @@ pub fn set_limit(env: Env, limit: u32) -> u32 {
 }
 ```
 
-  Store the account address when the contract is set up. Get it from `account_address(client_id, sender, salt)` on the GMP app, which returns the address whether or not the account exists yet. A target cannot ask the GMP app during the call, because Soroban does not let a contract be re-entered while it is running, and the GMP app is still running when the target executes. `tests/router_receive.rs` shows the pattern end to end through the router.
+  Store the account address when the contract is set up. Compute it with `ipsa::gmp::remote_account(env, gmp, client_id, sender, salt)` from the `ipsa-gmp` crate, or read it from `account_address(client_id, sender, salt)` on the GMP app; both give the address whether or not the account exists yet, and `tests/remote_account.rs` holds them equal. A target cannot ask the GMP app during the call, because Soroban does not let a contract be re-entered while it is running, and the GMP app is still running when the target executes. `tests/router_receive.rs` shows the pattern end to end through the router.
 - **The result.** The value the target returns is acknowledged as its XDR, inside the acknowledgement for the packet's encoding. A call that fails, including one refused by the target's `require_auth`, is acknowledged with IBC v2's universal error acknowledgement.
 
 This is not ICS-27 v1 interchain accounts: there are no channels or ordering, and there is one account per client, sender and salt.

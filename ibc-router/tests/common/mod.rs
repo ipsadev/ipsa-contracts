@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use ipsa_test_light_client::TestLightClient;
 use soroban_sdk::{
     contract, contractimpl,
     testutils::{Address as _, Ledger},
@@ -9,7 +10,6 @@ use stellar_ibc_router::{
     IbcRouter, IbcRouterClient, OnAcknowledgementPacketCallback, OnRecvPacketCallback,
     OnTimeoutPacketCallback, Packet, Payload,
 };
-use stellar_mock_light_client::MockLightClient;
 
 pub fn setup() -> (Env, Address, IbcRouterClient<'static>, Address) {
     let env = Env::default();
@@ -19,9 +19,9 @@ pub fn setup() -> (Env, Address, IbcRouterClient<'static>, Address) {
     let router_id = env.register(IbcRouter, (admin.clone(),));
     let router = IbcRouterClient::new(&env, &router_id);
 
-    let lc_id = env.register(MockLightClient, ());
+    let lc_id = env.register(TestLightClient, ());
 
-    router.register_client_type(&String::from_str(&env, "mock"), &lc_id);
+    router.register_client_type(&String::from_str(&env, "test"), &lc_id);
 
     (env, router_id, router, lc_id)
 }
@@ -85,7 +85,7 @@ pub fn setup_packet_flow() -> PacketFlow {
     env.ledger().with_mut(|li| li.timestamp = 1_000);
 
     let client_id = router.create_client(
-        &String::from_str(&env, "mock"),
+        &String::from_str(&env, "test"),
         &Bytes::from_slice(&env, b"cs"),
         &Bytes::from_slice(&env, b"cons"),
         &1,

@@ -1,3 +1,4 @@
+use ipsa_test_light_client::TestLightClient;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token::StellarAssetClient,
@@ -8,7 +9,6 @@ use stellar_ibc_transfer::{
     address_to_string, encode_ics20_json, FungibleTokenPacketData, IbcTransferApp,
     IbcTransferAppClient, Token,
 };
-use stellar_mock_light_client::MockLightClient;
 
 const SUCCESS_ACK_BYTE: u8 = 0x01;
 const SOURCE_VERSION: &str = "ics20-1";
@@ -66,11 +66,11 @@ fn setup() -> Net {
     let router_addr = env.register(IbcRouter, (router_admin,));
     let router = IbcRouterClient::new(&env, &router_addr);
 
-    let lc_id = env.register(MockLightClient, ());
-    router.register_client_type(&String::from_str(&env, "mock"), &lc_id);
+    let lc_id = env.register(TestLightClient, ());
+    router.register_client_type(&String::from_str(&env, "test"), &lc_id);
 
     let client_id = router.create_client(
-        &String::from_str(&env, "mock"),
+        &String::from_str(&env, "test"),
         &Bytes::from_slice(&env, b"cs"),
         &Bytes::from_slice(&env, b"cons"),
         &1,

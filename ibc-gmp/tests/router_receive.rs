@@ -2,6 +2,7 @@ mod account_contract {
     soroban_sdk::contractimport!(file = "../target/wasm32v1-none/contract/ipsa_gmp_account.wasm");
 }
 
+use ipsa_test_light_client::TestLightClient;
 use soroban_sdk::{
     contract, contractimpl, symbol_short,
     testutils::{Address as _, Ledger},
@@ -14,7 +15,6 @@ use stellar_ibc_router::{
     ics24::{commit_v2_acknowledgement, error_ack_hash},
     IbcRouter, IbcRouterClient, Packet, Payload,
 };
-use stellar_mock_light_client::MockLightClient;
 
 const PROTOBUF: &str = "application/x-protobuf";
 
@@ -70,12 +70,12 @@ fn setup() -> Fixture {
     let owner = Address::generate(&env);
     let router_id = env.register(IbcRouter, (owner.clone(),));
     let router = IbcRouterClient::new(&env, &router_id);
-    let light_client = env.register(MockLightClient, ());
+    let light_client = env.register(TestLightClient, ());
 
-    router.register_client_type(&String::from_str(&env, "mock"), &light_client);
+    router.register_client_type(&String::from_str(&env, "test"), &light_client);
 
     let client_id = router.create_client(
-        &String::from_str(&env, "mock"),
+        &String::from_str(&env, "test"),
         &Bytes::from_slice(&env, b"cs"),
         &Bytes::from_slice(&env, b"cons"),
         &1,

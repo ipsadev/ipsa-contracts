@@ -60,8 +60,7 @@ in place.
 
 Until the crypto lands, use this LC for: data-model integration tests,
 router smoke flows that depend on the `07-tendermint` client_type, structural
-misbehaviour tests. **Do not** use for any flow that needs to actually
-verify a Cosmos packet — fall back to the attestation LC or mock LC.
+misbehaviour tests.
 
 ## Wire shapes
 

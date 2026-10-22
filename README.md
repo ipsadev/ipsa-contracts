@@ -12,9 +12,7 @@ with the Soroban `contract` profile.
 | `ibc-voucher-token/` | `stellar-ibc-voucher-token` | fungible token the transfer app deploys and mints for unregistered foreign denominations |
 | `ibc-gmp/` | `stellar-ibc-gmp` | ICS-27 general message passing app |
 | `gmp-account/` | `ipsa-gmp-account` | account the message passing app derives and deploys per (client, sender, salt), and calls through |
-| `examples/gmp-caller/` | `ipsa-gmp-caller` | example contract that sends GMP calls as itself and records each outcome from the result callbacks |
-| `light-clients/mock/` | `stellar-mock-light-client` | always-accept light client (development) |
-| `light-clients/attestation/` | `stellar-attestation-light-client` | m-of-n Ed25519 attestation light client |
+| `testing/light-client/` | `ipsa-test-light-client` | always-accept light client for the tests only; a library with no `cdylib`, so it is never built to wasm or released |
 | `light-clients/tendermint/` | `stellar-tendermint-light-client` | Tendermint light client: signed-header verification and ICS-23 proofs |
 | `tests/` | `soroban-contracts-tests` | cross-contract integration tests (end to end transfer, Tendermint header and ICS-23 vectors) |
 

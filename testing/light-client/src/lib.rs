@@ -12,10 +12,10 @@ pub enum DataKey {
 }
 
 #[contract]
-pub struct MockLightClient;
+pub struct TestLightClient;
 
 #[contractimpl]
-impl MockLightClient {
+impl TestLightClient {
     pub fn initialise(
         env: Env,
         client_id: String,
@@ -115,8 +115,6 @@ impl MockLightClient {
     }
 
     pub fn client_type(env: Env) -> Symbol {
-        Symbol::new(&env, "mock")
+        Symbol::new(&env, "test")
     }
 }
-
-mod test;

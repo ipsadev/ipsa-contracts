@@ -7,9 +7,9 @@ combined with the `ICS02ClientUpgradeable` (client registry) and
 
 ## What it does
 
-- Owns the client registry: which `client_type` (e.g. `mock`, `attestation`,
+- Owns the client registry: which `client_type` (e.g. `sp1eth`,
   `07-tendermint`) maps to which light-client contract address, and which
-  `client_id` (e.g. `mock-0`, `07-tendermint-0`) was minted from which type.
+  `client_id` (e.g. `sepolia-0`, `07-tendermint-0`) was minted from which type.
 - Owns the counterparty mapping per client (the counterparty's `client_id` +
   ICS-2 §RegisterCounterparty commitment prefix).
 - Owns the port router: which app contract handles each port (e.g.

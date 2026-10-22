@@ -39,7 +39,7 @@ fn send_packet_rejects_no_counterparty() {
     let (env, _router_id, router, _lc_id) = setup();
     env.ledger().with_mut(|li| li.timestamp = 1_000);
     let client_id = router.create_client(
-        &String::from_str(&env, "mock"),
+        &String::from_str(&env, "test"),
         &Bytes::from_slice(&env, b"cs"),
         &Bytes::from_slice(&env, b"cons"),
         &1,

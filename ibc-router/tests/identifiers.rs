@@ -8,7 +8,7 @@ fn s(env: &Env, value: &str) -> String {
 #[test]
 fn accepts_typical_identifiers() {
     let env = Env::default();
-    validate_custom_identifier(&env, &s(&env, "mock"));
+    validate_custom_identifier(&env, &s(&env, "test"));
     validate_custom_identifier(&env, &s(&env, "transfer"));
     validate_custom_identifier(&env, &s(&env, "10-stellar"));
     validate_custom_identifier(&env, &s(&env, "07-tendermint-0"));

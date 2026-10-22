@@ -1,6 +1,4 @@
-use soroban_sdk::{
-    panic_with_error, xdr::ToXdr, Address, Bytes, BytesN, Env, IntoVal, String, Val, Vec,
-};
+use soroban_sdk::{panic_with_error, Address, Bytes, BytesN, Env, IntoVal, String, Val, Vec};
 
 use crate::{
     errors::Error,
@@ -9,22 +7,7 @@ use crate::{
 };
 
 pub fn salt_for(env: &Env, client_id: &String, sender: &String, salt: &Bytes) -> BytesN<32> {
-    let mut preimage = Bytes::new(env);
-
-    append_length_prefixed(env, &mut preimage, &client_id.clone().to_xdr(env));
-    append_length_prefixed(env, &mut preimage, &sender.clone().to_xdr(env));
-    append_length_prefixed(env, &mut preimage, salt);
-
-    env.crypto().sha256(&preimage).into()
-}
-
-fn append_length_prefixed(env: &Env, out: &mut Bytes, part: &Bytes) {
-    let len = part.len();
-
-    out.append(&Bytes::from_array(env, &len.to_be_bytes()));
-    out.append(part);
-
-    let _ = env;
+    ipsa::gmp::account_salt(env, client_id, sender, salt)
 }
 
 pub fn address_of(env: &Env, client_id: &String, sender: &String, salt: &Bytes) -> Address {

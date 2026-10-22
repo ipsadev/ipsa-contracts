@@ -21,6 +21,10 @@ pub use events::{
     CounterpartyRegistered, PortReassigned, PortRegistered, PortRemoved, RecvPacket, SendPacket,
     TimeoutPacket, WriteAck,
 };
+pub use ics02::Ics02;
+pub use ics04::Ics04;
+pub use port::Port;
+pub use storage::Store;
 pub use types::{
     Counterparty, DataKey, Height, OnAcknowledgementPacketCallback, OnRecvPacketCallback,
     OnTimeoutPacketCallback, Packet, Payload,
