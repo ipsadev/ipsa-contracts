@@ -3,7 +3,7 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error,
     xdr::{FromXdr, ToXdr},
-    Address, Bytes, BytesN, Env, String,
+    Address, Bytes, BytesN, Env, Map, String, Symbol, Val,
 };
 use stellar_access::access_control::set_admin;
 use stellar_macros::only_admin;
@@ -68,6 +68,19 @@ pub struct TendermintConsensusState {
 #[contracttype]
 #[derive(Clone)]
 pub struct TendermintHeader {
+    pub trusted_height: Height,
+    pub target_height: Height,
+    pub timestamp_secs: u64,
+    pub next_validators_hash: BytesN<32>,
+    pub app_hash: BytesN<32>,
+    pub signed_header_bytes: Bytes,
+    pub validator_set_bytes: Bytes,
+    pub trusted_validator_set_bytes: Bytes,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct LegacyTendermintHeader {
     pub trusted_height: Height,
     pub target_height: Height,
     pub timestamp_secs: u64,
@@ -310,10 +323,13 @@ fn verify_and_extract(
         &header.signed_header_bytes,
         &header.validator_set_bytes,
         &chain_id,
-        &trusted_next,
-        header.trusted_height.revision_height,
-        2,
-        3,
+        &verify::Trust {
+            height: header.trusted_height.revision_height,
+            next_validators_hash: &trusted_next,
+            validator_set: &header.trusted_validator_set_bytes,
+            numerator: cs.trust_level.numerator as u64,
+            denominator: cs.trust_level.denominator as u64,
+        },
     )
     .unwrap_or_else(|| panic_with_error!(env, Error::InvalidHeader));
 
@@ -352,8 +368,27 @@ fn load_consensus_state(env: &Env, client_id: &String, height: u64) -> Tendermin
 }
 
 fn decode_header(env: &Env, bytes: &Bytes) -> TendermintHeader {
-    TendermintHeader::from_xdr(env, bytes)
-        .unwrap_or_else(|_| panic_with_error!(env, Error::InvalidHeader))
+    let fields = Map::<Symbol, Val>::from_xdr(env, bytes)
+        .unwrap_or_else(|_| panic_with_error!(env, Error::InvalidHeader));
+
+    if fields.contains_key(Symbol::new(env, "trusted_validator_set_bytes")) {
+        return TendermintHeader::from_xdr(env, bytes)
+            .unwrap_or_else(|_| panic_with_error!(env, Error::InvalidHeader));
+    }
+
+    let legacy = LegacyTendermintHeader::from_xdr(env, bytes)
+        .unwrap_or_else(|_| panic_with_error!(env, Error::InvalidHeader));
+
+    TendermintHeader {
+        trusted_height: legacy.trusted_height,
+        target_height: legacy.target_height,
+        timestamp_secs: legacy.timestamp_secs,
+        next_validators_hash: legacy.next_validators_hash,
+        app_hash: legacy.app_hash,
+        signed_header_bytes: legacy.signed_header_bytes,
+        validator_set_bytes: legacy.validator_set_bytes,
+        trusted_validator_set_bytes: Bytes::new(env),
+    }
 }
 
 #[allow(dead_code)]

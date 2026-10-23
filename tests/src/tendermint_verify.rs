@@ -2,8 +2,8 @@ use prost::Message;
 use soroban_sdk::{testutils::Address as _, xdr::ToXdr, Bytes, BytesN, Env, String};
 use stellar_tendermint_light_client::{
     verify::{validator_set_hash, verify_commit},
-    Height, TendermintClientState, TendermintConsensusState, TendermintHeader,
-    TendermintLightClient, TendermintLightClientClient, TrustThreshold,
+    Error, Height, LegacyTendermintHeader, TendermintClientState, TendermintConsensusState,
+    TendermintHeader, TendermintLightClient, TendermintLightClientClient, TrustThreshold,
 };
 use tendermint_testgen::{validator::generate_validators, Generator, Validator as TgValidator};
 
@@ -260,6 +260,7 @@ fn build_update_msg(
         app_hash: BytesN::from_array(env, &[0u8; 32]),
         signed_header_bytes: Bytes::from_slice(env, &sh_bytes),
         validator_set_bytes: Bytes::from_slice(env, vs_bytes),
+        trusted_validator_set_bytes: Bytes::new(env),
     };
 
     header.to_xdr(env)
@@ -361,6 +362,7 @@ fn forged_update_msg(
         app_hash: BytesN::from_array(env, &app_hash),
         signed_header_bytes: Bytes::from_slice(env, &sh_bytes),
         validator_set_bytes: Bytes::from_slice(env, vs_bytes),
+        trusted_validator_set_bytes: Bytes::new(env),
     };
 
     header.to_xdr(env)
@@ -503,4 +505,331 @@ fn a_historical_update_still_records_its_consensus_state() {
         "backfilling must keep working — the older state is still stored"
     );
     assert!(!client.consensus_state(&cid, &7).is_empty());
+}
+
+fn validators(specs: &[(&str, u64)]) -> std::vec::Vec<TgValidator> {
+    specs
+        .iter()
+        .map(|(name, power)| TgValidator::new(name).voting_power(*power))
+        .collect()
+}
+
+fn signed_by(
+    height: u64,
+    signers: &[TgValidator],
+) -> (
+    tendermint::block::signed_header::SignedHeader,
+    tendermint::validator::Set,
+) {
+    let header = tendermint_testgen::Header::new(signers)
+        .height(height)
+        .chain_id("test-chain")
+        .next_validators(signers)
+        .time(tendermint::Time::from_unix_timestamp(height as i64, 0).unwrap());
+    let block = tendermint_testgen::LightBlock::new_default_with_header(header)
+        .generate()
+        .unwrap();
+
+    (block.signed_header, block.validators)
+}
+
+fn set_bytes(set: tendermint::validator::Set) -> std::vec::Vec<u8> {
+    tendermint_proto::types::ValidatorSet::from(set).encode_to_vec()
+}
+
+fn skipping_msg(
+    env: &Env,
+    sh: &tendermint::block::signed_header::SignedHeader,
+    validator_set: &[u8],
+    trusted_validator_set: &[u8],
+    trusted_height: u64,
+) -> Bytes {
+    let sh_bytes = tendermint_proto::types::SignedHeader::from(sh.clone()).encode_to_vec();
+
+    TendermintHeader {
+        trusted_height: Height {
+            revision_number: 0,
+            revision_height: trusted_height,
+        },
+        target_height: Height {
+            revision_number: 0,
+            revision_height: sh.header.height.value(),
+        },
+        timestamp_secs: 0,
+        next_validators_hash: BytesN::from_array(env, &[0u8; 32]),
+        app_hash: BytesN::from_array(env, &[0u8; 32]),
+        signed_header_bytes: Bytes::from_slice(env, &sh_bytes),
+        validator_set_bytes: Bytes::from_slice(env, validator_set),
+        trusted_validator_set_bytes: Bytes::from_slice(env, trusted_validator_set),
+    }
+    .to_xdr(env)
+}
+
+struct Changed {
+    header: tendermint::block::signed_header::SignedHeader,
+    validator_set: std::vec::Vec<u8>,
+    trusted_set: std::vec::Vec<u8>,
+    trusted_next: [u8; 32],
+}
+
+fn changed_set(trusted: &[(&str, u64)], current: &[(&str, u64)]) -> Changed {
+    let trusted_set = build_set(trusted);
+    let trusted_next = hash32(&trusted_set.hash());
+    let (header, validator_set) = signed_by(10, &validators(current));
+
+    Changed {
+        header,
+        validator_set: set_bytes(validator_set),
+        trusted_set: set_bytes(trusted_set),
+        trusted_next,
+    }
+}
+
+#[test]
+fn a_header_after_a_validator_set_change_is_accepted_when_the_trusted_validators_signed_it() {
+    let env = Env::default();
+    let changed = changed_set(
+        &[("a", 10), ("b", 10), ("c", 10), ("d", 10)],
+        &[("a", 10), ("b", 10), ("c", 10), ("e", 10)],
+    );
+
+    let (client, cid) = setup_client(
+        &env,
+        &changed.header,
+        5,
+        changed.header.header.chain_id.as_str(),
+        changed.trusted_next,
+    );
+    let msg = skipping_msg(
+        &env,
+        &changed.header,
+        &changed.validator_set,
+        &changed.trusted_set,
+        5,
+    );
+
+    assert_eq!(client.update_state(&cid, &msg), 10);
+    assert_eq!(client.latest_height(&cid), 10);
+}
+
+#[test]
+fn a_header_signed_by_too_few_trusted_validators_is_refused() {
+    let env = Env::default();
+    let changed = changed_set(
+        &[("a", 10), ("b", 10), ("c", 10)],
+        &[("a", 10), ("d", 10), ("e", 10)],
+    );
+
+    let (client, cid) = setup_client(
+        &env,
+        &changed.header,
+        5,
+        changed.header.header.chain_id.as_str(),
+        changed.trusted_next,
+    );
+    let msg = skipping_msg(
+        &env,
+        &changed.header,
+        &changed.validator_set,
+        &changed.trusted_set,
+        5,
+    );
+
+    assert_eq!(
+        client.try_update_state(&cid, &msg),
+        Err(Ok(Error::InvalidHeader.into()))
+    );
+}
+
+#[test]
+fn a_trusted_set_that_is_not_the_one_the_client_trusts_is_refused() {
+    let env = Env::default();
+    let changed = changed_set(
+        &[("a", 10), ("b", 10), ("c", 10), ("d", 10)],
+        &[("a", 10), ("b", 10), ("c", 10), ("e", 10)],
+    );
+
+    let (client, cid) = setup_client(
+        &env,
+        &changed.header,
+        5,
+        changed.header.header.chain_id.as_str(),
+        changed.trusted_next,
+    );
+    let msg = skipping_msg(
+        &env,
+        &changed.header,
+        &changed.validator_set,
+        &changed.validator_set,
+        5,
+    );
+
+    assert_eq!(
+        client.try_update_state(&cid, &msg),
+        Err(Ok(Error::InvalidHeader.into()))
+    );
+}
+
+#[test]
+fn a_changed_set_without_the_trusted_validators_is_refused() {
+    let env = Env::default();
+    let changed = changed_set(
+        &[("a", 10), ("b", 10), ("c", 10), ("d", 10)],
+        &[("a", 10), ("b", 10), ("c", 10), ("e", 10)],
+    );
+
+    let (client, cid) = setup_client(
+        &env,
+        &changed.header,
+        5,
+        changed.header.header.chain_id.as_str(),
+        changed.trusted_next,
+    );
+    let msg = skipping_msg(&env, &changed.header, &changed.validator_set, &[], 5);
+
+    assert_eq!(
+        client.try_update_state(&cid, &msg),
+        Err(Ok(Error::InvalidHeader.into()))
+    );
+}
+
+#[test]
+fn an_adjacent_header_must_carry_the_trusted_next_validators() {
+    let env = Env::default();
+    let changed = changed_set(
+        &[("a", 10), ("b", 10), ("c", 10), ("d", 10)],
+        &[("a", 10), ("b", 10), ("c", 10), ("e", 10)],
+    );
+
+    let (client, cid) = setup_client(
+        &env,
+        &changed.header,
+        9,
+        changed.header.header.chain_id.as_str(),
+        changed.trusted_next,
+    );
+    let msg = skipping_msg(
+        &env,
+        &changed.header,
+        &changed.validator_set,
+        &changed.trusted_set,
+        9,
+    );
+
+    assert_eq!(
+        client.try_update_state(&cid, &msg),
+        Err(Ok(Error::InvalidHeader.into()))
+    );
+}
+
+#[test]
+fn a_header_without_the_trusted_validators_field_still_updates_an_unchanged_set() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let vs_bytes = set_bytes(vals);
+    let trusted_next = hash32(&sh.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), trusted_next);
+    let sh_bytes = tendermint_proto::types::SignedHeader::from(sh.clone()).encode_to_vec();
+    let legacy = LegacyTendermintHeader {
+        trusted_height: Height {
+            revision_number: 0,
+            revision_height: 4,
+        },
+        target_height: Height {
+            revision_number: 0,
+            revision_height: 5,
+        },
+        timestamp_secs: 0,
+        next_validators_hash: BytesN::from_array(&env, &[0u8; 32]),
+        app_hash: BytesN::from_array(&env, &[0u8; 32]),
+        signed_header_bytes: Bytes::from_slice(&env, &sh_bytes),
+        validator_set_bytes: Bytes::from_slice(&env, &vs_bytes),
+    };
+
+    assert_eq!(client.update_state(&cid, &legacy.to_xdr(&env)), 5);
+}
+
+const HUB_TRUSTED_HEIGHT: u64 = 19532136;
+
+const HUB_TARGET_HEIGHT: u64 = 19534611;
+
+const HUB_TRUSTED_NEXT_VALIDATORS: &str =
+    "0ed48a2688ff5043e4057a43ed99dd21d753637f7a567e05801598ee44eefbab";
+
+fn fixture(name: &str) -> std::vec::Vec<u8> {
+    let path = format!(
+        "{}/fixtures/hub-validator-set-change/{name}.hex",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let text = std::fs::read_to_string(&path).unwrap();
+
+    (0..text.trim().len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+        .collect()
+}
+
+#[test]
+fn the_hub_header_after_its_validator_set_change_is_accepted_within_the_budget() {
+    let env = Env::default();
+    let signed_header = fixture("signed_header");
+    let header = tendermint_proto::types::SignedHeader::decode(signed_header.as_slice()).unwrap();
+    let header: tendermint::block::signed_header::SignedHeader = header.try_into().unwrap();
+
+    let trusted_next: [u8; 32] = (0..64)
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&HUB_TRUSTED_NEXT_VALIDATORS[i..i + 2], 16).unwrap())
+        .collect::<std::vec::Vec<u8>>()
+        .try_into()
+        .unwrap();
+
+    let (client, cid) = setup_client(&env, &header, HUB_TRUSTED_HEIGHT, "provider", trusted_next);
+    let msg = skipping_msg(
+        &env,
+        &header,
+        &fixture("validator_set"),
+        &fixture("trusted_validator_set"),
+        HUB_TRUSTED_HEIGHT,
+    );
+
+    env.cost_estimate().budget().reset_default();
+
+    assert_eq!(client.update_state(&cid, &msg), HUB_TARGET_HEIGHT);
+
+    let budget = env.cost_estimate().budget();
+    eprintln!(
+        "hub update across a validator set change: {} cpu, {} mem",
+        budget.cpu_instruction_cost(),
+        budget.memory_bytes_cost()
+    );
+}
+
+#[test]
+fn the_hub_header_after_its_validator_set_change_is_refused_without_the_trusted_validators() {
+    let env = Env::default();
+    let signed_header = fixture("signed_header");
+    let header = tendermint_proto::types::SignedHeader::decode(signed_header.as_slice()).unwrap();
+    let header: tendermint::block::signed_header::SignedHeader = header.try_into().unwrap();
+
+    let trusted_next: [u8; 32] = (0..64)
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&HUB_TRUSTED_NEXT_VALIDATORS[i..i + 2], 16).unwrap())
+        .collect::<std::vec::Vec<u8>>()
+        .try_into()
+        .unwrap();
+
+    let (client, cid) = setup_client(&env, &header, HUB_TRUSTED_HEIGHT, "provider", trusted_next);
+    let msg = skipping_msg(
+        &env,
+        &header,
+        &fixture("validator_set"),
+        &[],
+        HUB_TRUSTED_HEIGHT,
+    );
+
+    assert_eq!(
+        client.try_update_state(&cid, &msg),
+        Err(Ok(Error::InvalidHeader.into()))
+    );
 }

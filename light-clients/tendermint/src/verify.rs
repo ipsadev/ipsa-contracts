@@ -1,4 +1,4 @@
-use soroban_sdk::{Bytes, BytesN, Env, Vec};
+use soroban_sdk::{Bytes, BytesN, Env, Map, Vec};
 
 use crate::tmproto::{
     append_fixed64_le, append_len_delimited, append_varint, merkle_root, message_field,
@@ -15,15 +15,26 @@ pub struct HeaderCheck {
     pub next_validators_hash: [u8; 32],
 }
 
+pub struct Trust<'a> {
+    pub height: u64,
+    pub next_validators_hash: &'a [u8; 32],
+    pub validator_set: &'a Bytes,
+    pub numerator: u64,
+    pub denominator: u64,
+}
+
+struct Signers {
+    keys: Map<Bytes, BytesN<32>>,
+    signed_power: u128,
+    total_power: u128,
+}
+
 pub fn verify_header(
     env: &Env,
     signed_header: &Bytes,
     validator_set: &Bytes,
     expected_chain_id: &Bytes,
-    trusted_next_validators_hash: &[u8; 32],
-    trusted_height: u64,
-    num: u64,
-    den: u64,
+    trust: &Trust,
 ) -> Option<HeaderCheck> {
     let inner = message_field(signed_header, 1)?;
     let commit = message_field(signed_header, 2)?;
@@ -34,14 +45,11 @@ pub fn verify_header(
     }
 
     let height = varint_field(&inner, 3)?;
-    if height <= trusted_height {
+    if height <= trust.height {
         return None;
     }
 
     let validators_hash = to_array::<32>(&message_field(&inner, 8)?)?;
-    if &validators_hash != trusted_next_validators_hash {
-        return None;
-    }
     if validator_set_hash(env, validator_set)? != validators_hash {
         return None;
     }
@@ -52,7 +60,15 @@ pub fn verify_header(
         return None;
     }
 
-    if !verify_commit(env, signed_header, validator_set, num, den) {
+    let signers = commit_signers(env, signed_header, validator_set)?;
+    if !exceeds(signers.signed_power, signers.total_power, 2, 3) {
+        return None;
+    }
+
+    let unchanged = &validators_hash == trust.next_validators_hash;
+    let adjacent = height == trust.height + 1;
+
+    if !unchanged && (adjacent || !trusted_validators_signed(env, &signers, trust)) {
         return None;
     }
 
@@ -70,6 +86,51 @@ pub fn verify_header(
     })
 }
 
+fn trusted_validators_signed(env: &Env, signers: &Signers, trust: &Trust) -> bool {
+    if trust.validator_set.is_empty() || trust.denominator == 0 {
+        return false;
+    }
+
+    if validator_set_hash(env, trust.validator_set).as_ref() != Some(trust.next_validators_hash) {
+        return false;
+    }
+
+    let validators = match repeated_field(env, trust.validator_set, 1) {
+        Some(validators) => validators,
+        None => return false,
+    };
+
+    let mut total: u128 = 0;
+    let mut signed: u128 = 0;
+
+    for validator in validators.iter() {
+        let voting_power = varint_field(&validator, 3).unwrap_or(0) as u128;
+        total += voting_power;
+
+        let (Some(address), Some(key)) = (message_field(&validator, 1), ed25519_key(&validator))
+        else {
+            continue;
+        };
+
+        if signers.keys.get(address) == Some(key) {
+            signed += voting_power;
+        }
+    }
+
+    exceeds(signed, total, trust.numerator, trust.denominator)
+}
+
+fn exceeds(part: u128, total: u128, numerator: u64, denominator: u64) -> bool {
+    total > 0 && part * (denominator as u128) > total * (numerator as u128)
+}
+
+fn ed25519_key(validator: &Bytes) -> Option<BytesN<32>> {
+    let pub_key = message_field(validator, 2)?;
+    let ed25519 = message_field(&pub_key, 1)?;
+
+    to_array::<32>(&ed25519).map(|key| BytesN::from_array(ed25519.env(), &key))
+}
+
 pub fn verify_commit(
     env: &Env,
     signed_header: &Bytes,
@@ -77,47 +138,34 @@ pub fn verify_commit(
     num: u64,
     den: u64,
 ) -> bool {
-    let header = match message_field(signed_header, 1) {
-        Some(h) => h,
-        None => return false,
-    };
-    let commit = match message_field(signed_header, 2) {
-        Some(c) => c,
-        None => return false,
-    };
-    let chain_id = match message_field(&header, 2) {
-        Some(c) => c,
-        None => return false,
-    };
-    let block_id = match message_field(&commit, 3) {
-        Some(b) => b,
-        None => return false,
-    };
-    let height = match varint_field(&commit, 1) {
-        Some(h) => h,
-        None => return false,
-    };
+    match commit_signers(env, signed_header, validator_set) {
+        Some(signers) => exceeds(signers.signed_power, signers.total_power, num, den),
+        None => false,
+    }
+}
+
+fn commit_signers(env: &Env, signed_header: &Bytes, validator_set: &Bytes) -> Option<Signers> {
+    let header = message_field(signed_header, 1)?;
+    let commit = message_field(signed_header, 2)?;
+    let chain_id = message_field(&header, 2)?;
+    let block_id = message_field(&commit, 3)?;
+    let height = varint_field(&commit, 1)?;
     let round = varint_field(&commit, 2).unwrap_or(0);
 
-    let validators = match repeated_field(env, validator_set, 1) {
-        Some(v) => v,
-        None => return false,
-    };
-    let signatures = match repeated_field(env, &commit, 4) {
-        Some(s) => s,
-        None => return false,
-    };
+    let validators = repeated_field(env, validator_set, 1)?;
+    let signatures = repeated_field(env, &commit, 4)?;
     if validators.len() != signatures.len() || validators.is_empty() {
-        return false;
+        return None;
     }
 
-    let mut total: u128 = 0;
-    let mut tallied: u128 = 0;
+    let mut keys = Map::new(env);
+    let mut total_power: u128 = 0;
+    let mut signed_power: u128 = 0;
 
     for i in 0..validators.len() {
         let validator = validators.get(i).unwrap();
         let voting_power = varint_field(&validator, 3).unwrap_or(0);
-        total += voting_power as u128;
+        total_power += voting_power as u128;
 
         let signature = signatures.get(i).unwrap();
         let flag = varint_field(&signature, 1).unwrap_or(0);
@@ -126,34 +174,23 @@ pub fn verify_commit(
         }
 
         let timestamp = message_field(&signature, 3).unwrap_or_else(|| Bytes::new(env));
-        let sig_bytes = match message_field(&signature, 4) {
-            Some(s) => s,
-            None => return false,
-        };
-        let pub_key_msg = match message_field(&validator, 2) {
-            Some(p) => p,
-            None => return false,
-        };
-        let ed25519 = match message_field(&pub_key_msg, 1) {
-            Some(p) => p,
-            None => return false,
-        };
-        let pub_key: BytesN<32> = match to_array::<32>(&ed25519) {
-            Some(a) => BytesN::from_array(env, &a),
-            None => return false,
-        };
-        let sig: BytesN<64> = match to_array::<64>(&sig_bytes) {
-            Some(a) => BytesN::from_array(env, &a),
-            None => return false,
-        };
+        let sig: BytesN<64> =
+            BytesN::from_array(env, &to_array::<64>(&message_field(&signature, 4)?)?);
+        let pub_key = ed25519_key(&validator)?;
+        let address = message_field(&validator, 1)?;
 
         let sign_bytes = canonical_vote(env, height, round, &block_id, &timestamp, &chain_id);
         env.crypto().ed25519_verify(&pub_key, &sign_bytes, &sig);
 
-        tallied += voting_power as u128;
+        keys.set(address, pub_key);
+        signed_power += voting_power as u128;
     }
 
-    tallied * (den as u128) > total * (num as u128)
+    Some(Signers {
+        keys,
+        signed_power,
+        total_power,
+    })
 }
 
 fn canonical_vote(

@@ -1,66 +1,30 @@
-# `stellar-tendermint-light-client` — Tendermint LC scaffold (⚠️ crypto deferred)
+# `stellar-tendermint-light-client` — Tendermint light client for Stellar
 
-Light client that verifies Cosmos chain headers + IAVL membership proofs on
-Stellar. Soroban analog of Eureka's `SP1ICS07Tendermint.sol`, but **without**
-the SP1 zk verifier — Soroban's WASM budget is generous enough for direct
-header verification once the no_std crypto stack is wired in.
+Verifies Cosmos chain headers and IAVL membership proofs on Stellar. It is the Soroban counterpart of ibc-go's `07-tendermint` client: it checks Ed25519 commit signatures and ICS-23 proofs directly in the contract, without a zk verifier.
 
-**Status today:** scaffold. The data model, storage layout, height
-monotonicity check, frozen propagation, and conflicting-root misbehaviour
-detection are all live. **Real cryptographic verification — Tendermint
-signed-header check + ICS-23 IAVL proof walking — is stubbed at the
-`TODO(crypto)` boundary** and currently accepts any well-formed input. See
-the deferred-work section below.
+## Updating the client
 
-## What it does today (structural)
+`update_state` accepts a `TendermintHeader` for a height above the trusted one when all of these hold:
 
-- Stores a Tendermint-shaped `ClientState { chain_id, trust_level,
-  trusting_period_secs, unbonding_period_secs, max_clock_drift_secs,
-  latest_height, is_frozen, frozen_height, proof_specs }`.
-- Stores per-height `ConsensusState { timestamp_secs, next_validators_hash,
-  root }`.
-- `update_state`: rejects non-advancing heights + frozen clients, stores the
-  new ConsensusState keyed by `target_height`, advances `latest_height`.
-- `check_for_misbehaviour`: returns `true` iff a ConsensusState exists at the
-  header's target height with a **different** root (same root is idempotent).
-- `update_state_on_misbehaviour`: sets `is_frozen` + `frozen_height`.
-- `verify_membership` / `verify_non_membership`: reject if height has no
-  ConsensusState or client is frozen, then **accept any other input** (stub).
-- `get_timestamp_at_height`: reads `ConsensusState.timestamp_secs`.
+- the header's chain id is the client's
+- the header hashes to the block id the commit signed
+- the header's validator set hashes to its `validators_hash`, and validators holding more than 2/3 of its voting power signed the commit
+- the trusted consensus state is still inside the trusting period
 
-## What it doesn't do yet (cryptographic)
+The header must also connect to the trusted state, in one of two ways, as ibc-go's `VerifyAdjacent` and `VerifyNonAdjacent` do:
 
-Three call sites carry the production verifier — they're currently no-ops:
+- **Same validators.** The header's `validators_hash` is the trusted state's `next_validators_hash`. This is the only way an adjacent header (trusted height + 1) is accepted.
+- **Changed validators.** The header carries `trusted_validator_set_bytes`, the validator set at the trusted height + 1, which must hash to the trusted state's `next_validators_hash`. Validators from that set holding more than the client's `trust_level` (1/3 by default) of its voting power must have signed the commit. A trusted validator counts only when it signed with the same key in the new set.
 
-1. `update_state` — header signature verification:
-   - decode `signed_header_bytes`, confirm `chain_id` matches `cs.chain_id`
-   - verify Ed25519 quorum (⅔+ voting power per `trust_level`)
-   - verify `next_validators_hash` chains from the trusted ConsensusState
-   - reject if `(env.ledger().timestamp() - trusted_timestamp) > trusting_period`
-2. `verify_membership` — ICS-23 IAVL proof walk against
-   `ConsensusState.root` using the spec embedded in `client_state.proof_specs`.
-3. `verify_non_membership` — same, for the absence path.
+The second way is what keeps the client moving when the chain's validator set changes: without it, every header after the change carries a validator set the client does not trust, and the client can never be updated again. Its safety rests on the usual light client assumption that fewer than 1/3 of the trusted voting power is dishonest, so more than 1/3 signing means an honest trusted validator vouches for the header.
 
-Blocked on: `tendermint = "0.40"` and `ics23 = "0.12"` (workspace deps) are
-std-heavy and won't compile to `wasm32v1-none`. Needs either a no_std fork or
-a hand-rolled minimal verifier.
+A header without `trusted_validator_set_bytes`, the shape gateways sent before it existed, still decodes, and can only update the client while the validator set is unchanged.
 
-## Who calls it
+On the Cosmos Hub testnet, with 113 validators, an update across a validator set change costs about 152M CPU instructions in the wasm, and an update with an unchanged set about 118M. The network allows 400M per transaction.
 
-Same as any LC — only the router, via `env.invoke_contract`. When the
-crypto verifier lands, the call sites don't change; the structure is already
-in place.
+## Proofs
 
-## When to use it
-
-- Cosmos counterparty (simd, Cosmos Hub, Osmosis, etc.) where
-  the chain runs Tendermint and IAVL.
-- Registered under `client_type = "07-tendermint"` for the standard naming
-  convention.
-
-Until the crypto lands, use this LC for: data-model integration tests,
-router smoke flows that depend on the `07-tendermint` client_type, structural
-misbehaviour tests.
+`verify_membership` and `verify_non_membership` walk an ICS-23 IAVL proof against the root stored for the height, and refuse when the height has no consensus state or the client is frozen.
 
 ## Wire shapes
 
@@ -95,60 +59,41 @@ struct TendermintHeader {
     app_hash: BytesN<32>,
     signed_header_bytes: Bytes,
     validator_set_bytes: Bytes,
+    trusted_validator_set_bytes: Bytes,
 }
 
 struct Misbehaviour { header_a: TendermintHeader, header_b: TendermintHeader }
 ```
 
-## Entrypoints (12)
+`signed_header_bytes` and the two validator set fields are the protobuf `SignedHeader` and `ValidatorSet` messages. `trusted_validator_set_bytes` may be empty when the validator set has not changed.
 
-`initialise`, `latest_height`, `client_state`, `consensus_state`,
-`verify_client_message` (stub), `check_for_misbehaviour`, `update_state`,
-`update_state_on_misbehaviour`, `frozen`, `verify_membership`,
-`verify_non_membership`, `get_timestamp_at_height`.
+## Entrypoints
+
+`initialise`, `latest_height`, `client_state`, `consensus_state`, `verify_client_message`, `check_for_misbehaviour`, `update_state`, `update_state_on_misbehaviour`, `frozen`, `verify_membership`, `verify_non_membership`, `get_timestamp_at_height`.
+
+`check_for_misbehaviour` reports a verified header whose root differs from the one already stored for its height.
 
 ## Access
 
-The contract is deployed with the router's address
-(`__constructor(router)`), which becomes its OpenZeppelin access-control admin.
-`initialise` and `update_state_on_misbehaviour` are `#[only_admin]`, so only the
-router reaches them: `create_client` and `migrate_client` for the first, and
-`update_client` after `check_for_misbehaviour` for the second. A client id is
-initialised once; a second `initialise` for it panics with
-`ClientAlreadyInitialised`.
+The contract is deployed with the router's address (`__constructor(router)`), which becomes its OpenZeppelin access-control admin. `initialise` and `update_state_on_misbehaviour` are `#[only_admin]`, so only the router reaches them: `create_client` and `migrate_client` for the first, and `update_client` after `check_for_misbehaviour` for the second. A client id is initialised once; a second `initialise` for it panics with `ClientAlreadyInitialised`.
 
-## Architecture flow
+The contract has no `upgrade`: a deployed client moves to new code through the router's `migrate_client`, which initialises a new light client for the same client id with its current client and consensus state.
+
+## Flow
 
 ```
-                          [Cosmos chain produces SignedHeader + IAVL proofs]
-                                                |
-                                                v
-                                  +-------------+--------------+
-                                  |  Cosmos relayer (hermes)   |
-                                  +-------------+--------------+
-                                                |  StellarGatewayMsg/{UpdateClient,RecvPacket,...}
-                                                v
-                                  +-------------+--------------+
-                                  |  stellar-hermes-gateway    |
-                                  +-------------+--------------+
-                                                |  Soroban invoke
-                                                v
-                                  +-------------+--------------+
-                                  |  IbcRouter                 |
-                                  +-------------+--------------+
-                                                |  env.invoke_contract
-                                                v
-                                  +-------------+--------------+
-                                  | TendermintLightClient      |
-                                  |   (this crate)             |
-                                  +------+--------------+------+
-                                         |              |
-                                  update_state    verify_membership
-                                         |              |
-                                  +------v------+ +----v----------------+
-                                  | TODO(crypto):| | TODO(crypto):       |
-                                  | Ed25519 quorum| | ICS-23 IAVL walk    |
-                                  | over          | | against root +      |
-                                  | signed_header | | proof_specs         |
-                                  +-------------+- +---------------------+
+[Cosmos chain: signed headers and IAVL proofs]
+        |
+        v
+relayer --(UpdateClient, RecvPacket, ...)--> gateway --(Soroban invoke)--> IbcRouter
+                                                                              |
+                                                                     env.invoke_contract
+                                                                              v
+                                                              TendermintLightClient (this crate)
+                                                              update_state: commit signatures
+                                                              verify_membership: ICS-23 walk
 ```
+
+## When to use it
+
+For a Cosmos counterparty that runs Tendermint and IAVL (simd, the Cosmos Hub, Osmosis and so on), registered under the client type `07-tendermint`.
