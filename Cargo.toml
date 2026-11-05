@@ -16,7 +16,8 @@ resolver = "2"
 edition = "2021"
 license = "Apache-2.0"
 version = "0.2.0"
-repository = "https://github.com/amandagonsalves/stellar-ibc"
+authors = ["Amanda Gonsalves"]
+repository = "https://github.com/ipsadev/ipsa-contracts"
 rust-version = "1.81.0"
 
 [workspace.dependencies]

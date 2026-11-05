@@ -2,7 +2,7 @@
 
 lints := "-D warnings -A clippy::manual_is_multiple_of -A clippy::too_many_arguments -A clippy::result_large_err"
 
-ignored_advisories := "--ignore RUSTSEC-2026-0104 --ignore RUSTSEC-2026-0098 --ignore RUSTSEC-2026-0099 --ignore RUSTSEC-2026-0049 --ignore RUSTSEC-2026-0009 --ignore RUSTSEC-2026-0258"
+ignored_advisories := "--ignore RUSTSEC-2026-0387"
 
 default:
     @just --list
