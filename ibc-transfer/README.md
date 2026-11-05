@@ -1,8 +1,6 @@
 # `stellar-transfer-app` — ICS-20 v2 token transfer app
 
-The first real ICS-26 application contract. Stellar analog of Eureka's
-`ICS20Transfer.sol` (without the IBCERC20 wrapping yet — `TODO(sac)` markers
-mark where Stellar Asset Contract integration plugs in).
+The first real ICS-26 application contract, the Stellar counterpart of Eureka's `ICS20Transfer.sol`. A Stellar asset is escrowed and released through its Stellar Asset Contract, and a foreign denomination arrives as a voucher token the app deploys and mints, the counterpart of Eureka's IBCERC20.
 
 Demonstrates the full packet lifecycle by exercising every router entrypoint:
 mints sequences via `send_packet`, receives ack/timeout callbacks, refunds on
@@ -59,7 +57,7 @@ error.
 |---|---|
 | Off-chain admin (deploy) | `__constructor(router, admin)`, `set_rate_limit(denom, daily_cap)`, `set_client_encoding(client_id, encoding)`, `register_asset(denom, address, voucher)` |
 | Users (wallets, scripts) | `initiate_transfer(...)`, `asset(denom) -> AssetInfo`, `assets()`, `balance_of(...)`, `daily_cap(...)`, `daily_usage(...)` |
-| Tests / dev seeding | `mint(to, denom, amount)` — `TODO(sac)`: replace with SAC `transfer` once integrated |
+| The owner (tests, dev seeding) | `mint(to, denom, amount)`: mints through a registered asset's Stellar Asset Contract, for assets whose contract the app administers |
 | The router | `on_recv_packet`, `on_acknowledgement_packet`, `on_timeout_packet` — never called by anyone else (router address pins itself via `require_auth`) |
 
 ## Wire shape
@@ -160,11 +158,7 @@ pins the router's id. The router itself is still not upgradeable.
 - Reference for writing other ICS-26 app contracts — the on_recv/on_ack/
   on_timeout dispatch pattern and the router auth check transfer directly.
 
-**Not production-ready yet.** Two follow-ups:
-- SAC integration (`TODO(sac)`) — the local-balance ledger has no link to
-  real Stellar assets. Outbound should call SAC `transfer(sender, escrow,
-  amount)`; inbound should `transfer(escrow, receiver, amount)` for native
-  denoms and mint a wrapped denom (IBCERC20-equivalent) for foreign denoms.
+**Not production-ready yet.** One follow-up:
 - Per-client escrow isolation — currently single shared
   `current_contract_address` escrow. Eureka's per-client escrows are an
   isolation feature for multi-tenant deployments.
