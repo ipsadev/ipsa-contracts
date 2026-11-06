@@ -1943,6 +1943,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellar-ibc-fast-fill"
+version = "0.1.0"
+dependencies = [
+ "ipsa",
+ "ipsa-test-light-client",
+ "sha2 0.10.9",
+ "sha3",
+ "soroban-sdk",
+ "stellar-access",
+ "stellar-ibc-router",
+ "stellar-ibc-transfer",
+ "stellar-macros",
+]
+
+[[package]]
 name = "stellar-ibc-gmp"
 version = "0.1.0"
 dependencies = [

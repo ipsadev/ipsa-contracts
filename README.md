@@ -8,6 +8,7 @@ ipsa's on-chain code: the Soroban contracts that make Stellar an IBC v2 chain. T
 | `ibc-transfer/` | `stellar-ibc-transfer` | ICS-20 fungible-token transfer app |
 | `ibc-voucher-token/` | `stellar-ibc-voucher-token` | fungible token the transfer app deploys and mints for unregistered foreign denominations |
 | `ibc-gmp/` | `stellar-ibc-gmp` | ICS-27 general message passing app |
+| `ibc-fast-fill/` | `stellar-ibc-fast-fill` | fast path for transfers from slow-finality chains: providers pay the recipient before the packet lands, and the packet repays them |
 | `gmp-account/` | `ipsa-gmp-account` | account the message passing app derives and deploys per (client, sender, salt), and calls through |
 | `testing/light-client/` | `ipsa-test-light-client` | always-accept light client for the tests only; a library with no `cdylib`, so it is never built to wasm or released |
 | `light-clients/tendermint/` | `stellar-tendermint-light-client` | Tendermint light client: signed-header verification and ICS-23 proofs |

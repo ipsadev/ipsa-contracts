@@ -1,0 +1,24 @@
+[package]
+name = "stellar-ibc-fast-fill"
+version = "0.1.0"
+edition = "2021"
+license = { workspace = true }
+publish = false
+
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellar-access = { workspace = true }
+stellar-macros = { workspace = true }
+ipsa = { workspace = true, features = ["types", "ics20"] }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+stellar-ibc-router = { path = "../ibc-router" }
+stellar-ibc-transfer = { path = "../ibc-transfer" }
+ipsa-test-light-client = { workspace = true }
+sha2 = "0.10"
+sha3 = "0.10"
