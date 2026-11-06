@@ -4,6 +4,7 @@ members = [
     "testing/light-client",
     "ibc-transfer",
     "ibc-gmp",
+    "ibc-fast-fill",
     "gmp-account",
     "ibc-voucher-token",
     "ibc-router",
