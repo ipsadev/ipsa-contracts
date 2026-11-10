@@ -23,10 +23,12 @@ pub struct Trust<'a> {
     pub denominator: u64,
 }
 
-struct Signers {
-    keys: Map<Bytes, BytesN<32>>,
-    signed_power: u128,
-    total_power: u128,
+struct Commit {
+    chain_id: Bytes,
+    block_id: Bytes,
+    height: u64,
+    round: u64,
+    signatures: Vec<Bytes>,
 }
 
 pub fn verify_header(
@@ -54,24 +56,38 @@ pub fn verify_header(
         return None;
     }
 
+    if varint_field(&commit, 1)? != height {
+        return None;
+    }
+
     let block_id = message_field(&commit, 3)?;
     let block_hash = to_array::<32>(&message_field(&block_id, 1)?)?;
     if header_hash(env, &inner) != block_hash {
         return None;
     }
 
-    let signers = commit_signers(env, signed_header, validator_set)?;
-    if !exceeds(signers.signed_power, signers.total_power, 2, 3) {
+    let mut verified = Map::new(env);
+    if !verify_commit_light(env, signed_header, validator_set, 2, 3, &mut verified)? {
         return None;
     }
 
     let unchanged = &validators_hash == trust.next_validators_hash;
     let adjacent = height == trust.height + 1;
 
-    if !unchanged && (adjacent || !trusted_validators_signed(env, &signers, trust)) {
+    if !unchanged
+        && (adjacent
+            || !trusted_validators_signed(env, signed_header, validator_set, trust, &verified))
+    {
         return None;
     }
 
+    header_fields(env, signed_header)
+}
+
+pub fn header_fields(env: &Env, signed_header: &Bytes) -> Option<HeaderCheck> {
+    let inner = message_field(signed_header, 1)?;
+
+    let height = varint_field(&inner, 3)?;
     let app_hash = to_array::<32>(&message_field(&inner, 11).unwrap_or_else(|| Bytes::new(env)))
         .unwrap_or([0u8; 32]);
     let next_validators_hash = to_array::<32>(&message_field(&inner, 9)?)?;
@@ -86,7 +102,13 @@ pub fn verify_header(
     })
 }
 
-fn trusted_validators_signed(env: &Env, signers: &Signers, trust: &Trust) -> bool {
+fn trusted_validators_signed(
+    env: &Env,
+    signed_header: &Bytes,
+    validator_set: &Bytes,
+    trust: &Trust,
+    verified: &Map<u32, BytesN<32>>,
+) -> bool {
     if trust.validator_set.is_empty() || trust.denominator == 0 {
         return false;
     }
@@ -95,29 +117,65 @@ fn trusted_validators_signed(env: &Env, signers: &Signers, trust: &Trust) -> boo
         return false;
     }
 
-    let validators = match repeated_field(env, trust.validator_set, 1) {
-        Some(validators) => validators,
-        None => return false,
+    let (Some(commit), Some(validators), Some(trusted)) = (
+        commit_of(signed_header),
+        repeated_field(env, validator_set, 1),
+        repeated_field(env, trust.validator_set, 1),
+    ) else {
+        return false;
     };
 
+    if validators.len() != commit.signatures.len() {
+        return false;
+    }
+
+    let mut trusted_by_address: Map<Bytes, (BytesN<32>, u64)> = Map::new(env);
     let mut total: u128 = 0;
-    let mut signed: u128 = 0;
 
-    for validator in validators.iter() {
-        let voting_power = varint_field(&validator, 3).unwrap_or(0) as u128;
-        total += voting_power;
+    for validator in trusted.iter() {
+        let voting_power = varint_field(&validator, 3).unwrap_or(0);
+        total += voting_power as u128;
 
-        let (Some(address), Some(key)) = (message_field(&validator, 1), ed25519_key(&validator))
-        else {
-            continue;
-        };
-
-        if signers.keys.get(address) == Some(key) {
-            signed += voting_power;
+        if let (Some(address), Some(key)) = (message_field(&validator, 1), ed25519_key(&validator))
+        {
+            trusted_by_address.set(address, (key, voting_power));
         }
     }
 
-    exceeds(signed, total, trust.numerator, trust.denominator)
+    let mut seen: Map<Bytes, ()> = Map::new(env);
+    let mut tallied: u128 = 0;
+
+    for index in 0..commit.signatures.len() {
+        let signature = commit.signatures.get(index).unwrap();
+        if varint_field(&signature, 1).unwrap_or(0) != BLOCK_ID_FLAG_COMMIT {
+            continue;
+        }
+
+        let Some(address) = message_field(&signature, 2) else {
+            continue;
+        };
+        let Some((key, voting_power)) = trusted_by_address.get(address.clone()) else {
+            continue;
+        };
+
+        if seen.contains_key(address.clone()) {
+            return false;
+        }
+        seen.set(address, ());
+
+        if verified.get(index) != Some(key.clone()) && !verify_vote(env, &commit, &signature, &key)
+        {
+            return false;
+        }
+
+        tallied += voting_power as u128;
+
+        if exceeds(tallied, total, trust.numerator, trust.denominator) {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn exceeds(part: u128, total: u128, numerator: u64, denominator: u64) -> bool {
@@ -138,59 +196,93 @@ pub fn verify_commit(
     num: u64,
     den: u64,
 ) -> bool {
-    match commit_signers(env, signed_header, validator_set) {
-        Some(signers) => exceeds(signers.signed_power, signers.total_power, num, den),
-        None => false,
-    }
+    let mut verified = Map::new(env);
+
+    verify_commit_light(env, signed_header, validator_set, num, den, &mut verified).unwrap_or(false)
 }
 
-fn commit_signers(env: &Env, signed_header: &Bytes, validator_set: &Bytes) -> Option<Signers> {
+fn commit_of(signed_header: &Bytes) -> Option<Commit> {
     let header = message_field(signed_header, 1)?;
     let commit = message_field(signed_header, 2)?;
-    let chain_id = message_field(&header, 2)?;
-    let block_id = message_field(&commit, 3)?;
-    let height = varint_field(&commit, 1)?;
-    let round = varint_field(&commit, 2).unwrap_or(0);
 
+    Some(Commit {
+        chain_id: message_field(&header, 2)?,
+        block_id: message_field(&commit, 3)?,
+        height: varint_field(&commit, 1)?,
+        round: varint_field(&commit, 2).unwrap_or(0),
+        signatures: repeated_field(signed_header.env(), &commit, 4)?,
+    })
+}
+
+fn verify_vote(env: &Env, commit: &Commit, signature: &Bytes, key: &BytesN<32>) -> bool {
+    let Some(raw) = message_field(signature, 4).and_then(|raw| to_array::<64>(&raw)) else {
+        return false;
+    };
+
+    let timestamp = message_field(signature, 3).unwrap_or_else(|| Bytes::new(env));
+    let sign_bytes = canonical_vote(
+        env,
+        commit.height,
+        commit.round,
+        &commit.block_id,
+        &timestamp,
+        &commit.chain_id,
+    );
+
+    env.crypto()
+        .ed25519_verify(key, &sign_bytes, &BytesN::from_array(env, &raw));
+
+    true
+}
+
+fn verify_commit_light(
+    env: &Env,
+    signed_header: &Bytes,
+    validator_set: &Bytes,
+    num: u64,
+    den: u64,
+    verified: &mut Map<u32, BytesN<32>>,
+) -> Option<bool> {
+    let commit = commit_of(signed_header)?;
     let validators = repeated_field(env, validator_set, 1)?;
-    let signatures = repeated_field(env, &commit, 4)?;
-    if validators.len() != signatures.len() || validators.is_empty() {
+
+    if validators.len() != commit.signatures.len() || validators.is_empty() {
         return None;
     }
 
-    let mut keys = Map::new(env);
-    let mut total_power: u128 = 0;
-    let mut signed_power: u128 = 0;
+    let total: u128 = validators
+        .iter()
+        .map(|validator| varint_field(&validator, 3).unwrap_or(0) as u128)
+        .sum();
 
-    for i in 0..validators.len() {
-        let validator = validators.get(i).unwrap();
-        let voting_power = varint_field(&validator, 3).unwrap_or(0);
-        total_power += voting_power as u128;
+    let mut tallied: u128 = 0;
 
-        let signature = signatures.get(i).unwrap();
-        let flag = varint_field(&signature, 1).unwrap_or(0);
-        if flag != BLOCK_ID_FLAG_COMMIT {
+    for index in 0..validators.len() {
+        let signature = commit.signatures.get(index).unwrap();
+        if varint_field(&signature, 1).unwrap_or(0) != BLOCK_ID_FLAG_COMMIT {
             continue;
         }
 
-        let timestamp = message_field(&signature, 3).unwrap_or_else(|| Bytes::new(env));
-        let sig: BytesN<64> =
-            BytesN::from_array(env, &to_array::<64>(&message_field(&signature, 4)?)?);
-        let pub_key = ed25519_key(&validator)?;
-        let address = message_field(&validator, 1)?;
+        let validator = validators.get(index).unwrap();
+        if message_field(&signature, 2)? != message_field(&validator, 1)? {
+            return None;
+        }
 
-        let sign_bytes = canonical_vote(env, height, round, &block_id, &timestamp, &chain_id);
-        env.crypto().ed25519_verify(&pub_key, &sign_bytes, &sig);
+        let key = ed25519_key(&validator)?;
 
-        keys.set(address, pub_key);
-        signed_power += voting_power as u128;
+        if !verify_vote(env, &commit, &signature, &key) {
+            return None;
+        }
+
+        verified.set(index, key);
+        tallied += varint_field(&validator, 3).unwrap_or(0) as u128;
+
+        if exceeds(tallied, total, num, den) {
+            return Some(true);
+        }
     }
 
-    Some(Signers {
-        keys,
-        signed_power,
-        total_power,
-    })
+    Some(false)
 }
 
 fn canonical_vote(
