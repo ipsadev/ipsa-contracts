@@ -27,6 +27,10 @@ pub enum Error {
     HeaderHeightNotAfterTrusted = 9,
     TrustingPeriodElapsed = 10,
     ClientAlreadyInitialised = 11,
+    HeaderTimeNotAfterTrusted = 12,
+    HeaderTimeInFuture = 13,
+    RevisionMismatch = 14,
+    InvalidTrustLevel = 15,
 }
 
 #[contracttype]
@@ -135,6 +139,14 @@ impl TendermintLightClient {
         let cons = TendermintConsensusState::from_xdr(&env, &consensus_state)
             .unwrap_or_else(|_| panic_with_error!(&env, Error::InvalidConsensusState));
 
+        let trust = &cs.trust_level;
+        if trust.denominator == 0
+            || (trust.numerator as u64) * 3 < trust.denominator as u64
+            || trust.numerator > trust.denominator
+        {
+            panic_with_error!(&env, Error::InvalidTrustLevel);
+        }
+
         env.storage()
             .persistent()
             .set(&DataKey::Client(client_id.clone()), &cs);
@@ -184,10 +196,16 @@ impl TendermintLightClient {
         }
     }
 
+    #[only_admin]
     pub fn update_state(env: Env, client_id: String, client_message: Bytes) -> u64 {
-        let check = verify_and_extract(&env, &client_id, &client_message);
-
         let mut cs = load_client_state(&env, &client_id);
+        if cs.is_frozen {
+            panic_with_error!(&env, Error::ClientFrozen);
+        }
+
+        let header = decode_header(&env, &client_message);
+        let check = verify::header_fields(&env, &header.signed_header_bytes)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::InvalidHeader));
 
         let new_consensus = TendermintConsensusState {
             timestamp_secs: check.timestamp,
@@ -333,13 +351,29 @@ fn verify_and_extract(
     )
     .unwrap_or_else(|| panic_with_error!(env, Error::InvalidHeader));
 
+    if header.target_height.revision_number != header.trusted_height.revision_number {
+        panic_with_error!(env, Error::RevisionMismatch);
+    }
+
+    if header.target_height.revision_height != check.height {
+        panic_with_error!(env, Error::InvalidHeader);
+    }
+
     let now = env.ledger().timestamp();
     if now
-        > trusted
+        >= trusted
             .timestamp_secs
             .saturating_add(cs.trusting_period_secs)
     {
         panic_with_error!(env, Error::TrustingPeriodElapsed);
+    }
+
+    if check.timestamp <= trusted.timestamp_secs {
+        panic_with_error!(env, Error::HeaderTimeNotAfterTrusted);
+    }
+
+    if check.timestamp >= now.saturating_add(cs.max_clock_drift_secs) {
+        panic_with_error!(env, Error::HeaderTimeInFuture);
     }
 
     check
