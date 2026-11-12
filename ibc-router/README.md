@@ -104,6 +104,11 @@ every leaf of the tree.
 **State tree:**
 - `ibc_root` returns the current root; `commit_root` republishes it in an `ibc_root` event without
   changing state, so an idle router can still produce a ledger the light client can bind a root to.
+- Every `ibc_root` event carries the full tree root at that point, so each root a ledger emits is
+  cumulative over the commitments before it. A ledger can hold several router transactions, each
+  publishing its own root; the canonical root for the ledger is the one its last transaction
+  published, the only root that covers every commitment the ledger made. The light client binds one
+  root per ledger height, so a relayer must prove that last root.
 - Each leaf sits at the first 8 bytes of `sha256(path)`, and the router records the full
   `sha256(path)` that owns each slot. A write by a different path that lands on an occupied slot
   fails with `ProvableSlotTaken`, and a removal only clears a slot its own path owns, so a 64-bit
