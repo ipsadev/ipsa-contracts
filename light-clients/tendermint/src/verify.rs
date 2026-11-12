@@ -8,6 +8,19 @@ use crate::tmproto::{
 const SIGNED_MSG_TYPE_PRECOMMIT: u8 = 2;
 const BLOCK_ID_FLAG_COMMIT: u64 = 2;
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Reject {
+    Malformed,
+    ChainIdMismatch,
+    HeightNotAfterTrusted,
+    ValidatorSetHashMismatch,
+    CommitHeightMismatch,
+    BlockHashMismatch,
+    BadCommitSignature,
+    InsufficientVotingPower,
+    TrustLevelNotMet,
+}
+
 pub struct HeaderCheck {
     pub height: u64,
     pub timestamp: u64,
@@ -37,38 +50,40 @@ pub fn verify_header(
     validator_set: &Bytes,
     expected_chain_id: &Bytes,
     trust: &Trust,
-) -> Option<HeaderCheck> {
-    let inner = message_field(signed_header, 1)?;
-    let commit = message_field(signed_header, 2)?;
+) -> Result<HeaderCheck, Reject> {
+    let inner = message_field(signed_header, 1).ok_or(Reject::Malformed)?;
+    let commit = message_field(signed_header, 2).ok_or(Reject::Malformed)?;
 
-    let chain_id = message_field(&inner, 2)?;
+    let chain_id = message_field(&inner, 2).ok_or(Reject::Malformed)?;
     if &chain_id != expected_chain_id {
-        return None;
+        return Err(Reject::ChainIdMismatch);
     }
 
-    let height = varint_field(&inner, 3)?;
+    let height = varint_field(&inner, 3).ok_or(Reject::Malformed)?;
     if height <= trust.height {
-        return None;
+        return Err(Reject::HeightNotAfterTrusted);
     }
 
-    let validators_hash = to_array::<32>(&message_field(&inner, 8)?)?;
-    if validator_set_hash(env, validator_set)? != validators_hash {
-        return None;
+    let validators_hash = to_array::<32>(&message_field(&inner, 8).ok_or(Reject::Malformed)?)
+        .ok_or(Reject::Malformed)?;
+    if validator_set_hash(env, validator_set).ok_or(Reject::Malformed)? != validators_hash {
+        return Err(Reject::ValidatorSetHashMismatch);
     }
 
-    if varint_field(&commit, 1)? != height {
-        return None;
+    if varint_field(&commit, 1).ok_or(Reject::Malformed)? != height {
+        return Err(Reject::CommitHeightMismatch);
     }
 
-    let block_id = message_field(&commit, 3)?;
-    let block_hash = to_array::<32>(&message_field(&block_id, 1)?)?;
+    let block_id = message_field(&commit, 3).ok_or(Reject::Malformed)?;
+    let block_hash = to_array::<32>(&message_field(&block_id, 1).ok_or(Reject::Malformed)?)
+        .ok_or(Reject::Malformed)?;
     if header_hash(env, &inner) != block_hash {
-        return None;
+        return Err(Reject::BlockHashMismatch);
     }
 
     let mut verified = Map::new(env);
     if !verify_commit_light(env, signed_header, validator_set, 2, 3, &mut verified)? {
-        return None;
+        return Err(Reject::InsufficientVotingPower);
     }
 
     let unchanged = &validators_hash == trust.next_validators_hash;
@@ -78,10 +93,10 @@ pub fn verify_header(
         && (adjacent
             || !trusted_validators_signed(env, signed_header, validator_set, trust, &verified))
     {
-        return None;
+        return Err(Reject::TrustLevelNotMet);
     }
 
-    header_fields(env, signed_header)
+    header_fields(env, signed_header).ok_or(Reject::Malformed)
 }
 
 pub fn header_fields(env: &Env, signed_header: &Bytes) -> Option<HeaderCheck> {
@@ -242,12 +257,12 @@ fn verify_commit_light(
     num: u64,
     den: u64,
     verified: &mut Map<u32, BytesN<32>>,
-) -> Option<bool> {
-    let commit = commit_of(signed_header)?;
-    let validators = repeated_field(env, validator_set, 1)?;
+) -> Result<bool, Reject> {
+    let commit = commit_of(signed_header).ok_or(Reject::Malformed)?;
+    let validators = repeated_field(env, validator_set, 1).ok_or(Reject::Malformed)?;
 
     if validators.len() != commit.signatures.len() || validators.is_empty() {
-        return None;
+        return Err(Reject::Malformed);
     }
 
     let total: u128 = validators
@@ -264,25 +279,27 @@ fn verify_commit_light(
         }
 
         let validator = validators.get(index).unwrap();
-        if message_field(&signature, 2)? != message_field(&validator, 1)? {
-            return None;
+        if message_field(&signature, 2).ok_or(Reject::Malformed)?
+            != message_field(&validator, 1).ok_or(Reject::Malformed)?
+        {
+            return Err(Reject::Malformed);
         }
 
-        let key = ed25519_key(&validator)?;
+        let key = ed25519_key(&validator).ok_or(Reject::Malformed)?;
 
         if !verify_vote(env, &commit, &signature, &key) {
-            return None;
+            return Err(Reject::BadCommitSignature);
         }
 
         verified.set(index, key);
         tallied += varint_field(&validator, 3).unwrap_or(0) as u128;
 
         if exceeds(tallied, total, num, den) {
-            return Some(true);
+            return Ok(true);
         }
     }
 
-    Some(false)
+    Ok(false)
 }
 
 fn canonical_vote(

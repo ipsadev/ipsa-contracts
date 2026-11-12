@@ -322,7 +322,6 @@ fn verify_client_message_accepts_valid_header() {
 }
 
 #[test]
-#[should_panic]
 fn verify_client_message_rejects_wrong_chain_id() {
     let env = Env::default();
     let (sh, vals) = gen_full(5);
@@ -332,11 +331,13 @@ fn verify_client_message_rejects_wrong_chain_id() {
     let (client, cid) = setup_client(&env, &sh, 4, "wrong-chain", trusted_next);
     let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
 
-    client.verify_client_message(&cid, &msg);
+    assert_eq!(
+        client.try_verify_client_message(&cid, &msg),
+        Err(Ok(Error::ChainIdMismatch.into()))
+    );
 }
 
 #[test]
-#[should_panic]
 fn verify_client_message_rejects_broken_adjacency() {
     let env = Env::default();
     let (sh, vals) = gen_full(5);
@@ -345,7 +346,10 @@ fn verify_client_message_rejects_broken_adjacency() {
     let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), [0u8; 32]);
     let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
 
-    client.verify_client_message(&cid, &msg);
+    assert_eq!(
+        client.try_verify_client_message(&cid, &msg),
+        Err(Ok(Error::TrustLevelNotMet.into()))
+    );
 }
 
 fn from_hex(env: &Env, s: &str) -> Bytes {
@@ -692,7 +696,7 @@ fn a_header_signed_by_too_few_trusted_validators_is_refused() {
 
     assert_eq!(
         client.try_check_for_misbehaviour(&cid, &msg),
-        Err(Ok(Error::InvalidHeader.into()))
+        Err(Ok(Error::TrustLevelNotMet.into()))
     );
 }
 
@@ -721,7 +725,7 @@ fn a_trusted_set_that_is_not_the_one_the_client_trusts_is_refused() {
 
     assert_eq!(
         client.try_check_for_misbehaviour(&cid, &msg),
-        Err(Ok(Error::InvalidHeader.into()))
+        Err(Ok(Error::TrustLevelNotMet.into()))
     );
 }
 
@@ -744,7 +748,7 @@ fn a_changed_set_without_the_trusted_validators_is_refused() {
 
     assert_eq!(
         client.try_check_for_misbehaviour(&cid, &msg),
-        Err(Ok(Error::InvalidHeader.into()))
+        Err(Ok(Error::TrustLevelNotMet.into()))
     );
 }
 
@@ -773,7 +777,7 @@ fn an_adjacent_header_must_carry_the_trusted_next_validators() {
 
     assert_eq!(
         client.try_check_for_misbehaviour(&cid, &msg),
-        Err(Ok(Error::InvalidHeader.into()))
+        Err(Ok(Error::TrustLevelNotMet.into()))
     );
 }
 
@@ -885,7 +889,7 @@ fn the_hub_header_after_its_validator_set_change_is_refused_without_the_trusted_
 
     assert_eq!(
         client.try_check_for_misbehaviour(&cid, &msg),
-        Err(Ok(Error::InvalidHeader.into()))
+        Err(Ok(Error::TrustLevelNotMet.into()))
     );
 }
 
@@ -1087,7 +1091,58 @@ fn a_commit_for_another_height_is_refused() {
 
     assert_eq!(
         client.try_check_for_misbehaviour(&cid, &msg),
-        Err(Ok(Error::InvalidHeader.into()))
+        Err(Ok(Error::CommitHeightMismatch.into()))
+    );
+}
+
+#[test]
+fn a_forged_validator_set_is_refused() {
+    let env = Env::default();
+    let (sh, _vals) = gen_full(5);
+    let other = build_set(&[("x", 10), ("y", 20), ("z", 30)]);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(other).encode_to_vec();
+    let trusted_next = hash32(&sh.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), trusted_next);
+    let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
+
+    assert_eq!(
+        client.try_check_for_misbehaviour(&cid, &msg),
+        Err(Ok(Error::ValidatorSetHashMismatch.into()))
+    );
+}
+
+#[test]
+fn a_header_with_a_mismatched_block_hash_is_refused() {
+    let env = Env::default();
+    let (mut sh, vals) = gen_full(5);
+    sh.commit.block_id.hash = tendermint::Hash::Sha256([9u8; 32]);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), trusted_next);
+    let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
+
+    assert_eq!(
+        client.try_check_for_misbehaviour(&cid, &msg),
+        Err(Ok(Error::BlockHashMismatch.into()))
+    );
+}
+
+#[test]
+fn a_header_without_two_thirds_of_the_power_is_refused() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let sh = with_one_absent_vote(&sh);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), trusted_next);
+    let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
+
+    assert_eq!(
+        client.try_check_for_misbehaviour(&cid, &msg),
+        Err(Ok(Error::InsufficientVotingPower.into()))
     );
 }
 
@@ -1127,6 +1182,38 @@ fn a_header_for_another_revision_is_refused() {
     assert_eq!(
         client.try_check_for_misbehaviour(&cid, &msg),
         Err(Ok(Error::RevisionMismatch.into()))
+    );
+}
+
+#[test]
+fn a_header_whose_declared_target_height_disagrees_with_the_verified_height_is_refused() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), trusted_next);
+    let sh_bytes = tendermint_proto::types::SignedHeader::from(sh.clone()).encode_to_vec();
+    let header = TendermintHeader {
+        trusted_height: Height {
+            revision_number: 0,
+            revision_height: 4,
+        },
+        target_height: Height {
+            revision_number: 0,
+            revision_height: sh.header.height.value() + 1,
+        },
+        timestamp_secs: 0,
+        next_validators_hash: BytesN::from_array(&env, &[0u8; 32]),
+        app_hash: BytesN::from_array(&env, &[0u8; 32]),
+        signed_header_bytes: Bytes::from_slice(&env, &sh_bytes),
+        validator_set_bytes: Bytes::from_slice(&env, &vs_bytes),
+        trusted_validator_set_bytes: Bytes::new(&env),
+    };
+
+    assert_eq!(
+        client.try_check_for_misbehaviour(&cid, &header.to_xdr(&env)),
+        Err(Ok(Error::TargetHeightMismatch.into()))
     );
 }
 
