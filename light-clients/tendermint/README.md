@@ -22,6 +22,22 @@ A header without `trusted_validator_set_bytes`, the shape gateways sent before i
 
 On the Cosmos Hub testnet, with 113 validators, an update across a validator set change costs about 152M CPU instructions in the wasm, and an update with an unchanged set about 118M. The network allows 400M per transaction.
 
+## Rejection reasons
+
+A header that fails verification panics with a distinct `Error` so a caller, a test, or an on-chain negative-path check can tell which invariant it broke rather than reading one opaque failure. The checks run in this order, and the first one to fail decides the code:
+
+- `ChainIdMismatch` (8) — the header's chain id is not the client's.
+- `HeaderHeightNotAfterTrusted` (9) — the header is at or below the trusted height.
+- `ValidatorSetHashMismatch` (16) — the supplied validator set does not hash to the header's `validators_hash`.
+- `CommitHeightMismatch` (17) — the commit is for a different height than the header.
+- `BlockHashMismatch` (18) — the header does not hash to the block id the commit signed.
+- `InsufficientVotingPower` (20) — the signatures present carry 2/3 or less of the set's voting power.
+- `TrustLevelNotMet` (21) — a changed-validator header is adjacent, or fewer than the client's `trust_level` of the trusted voting power signed it.
+- `RevisionMismatch` (14) — the header's declared `target_height.revision_number` is not the trusted revision.
+- `TargetHeightMismatch` (22) — the header's declared `target_height.revision_height` is not the height that was actually verified.
+- `InvalidHeader` (5) — the bytes are malformed, or a commit signature's position does not match its validator.
+- `BadCommitSignature` (19) — a commit signature is not 64 bytes. A well-formed but cryptographically wrong Ed25519 signature traps in the host `ed25519_verify` instead of returning this code; giving that case a typed error needs a non-trapping host verify.
+
 ## Proofs
 
 `verify_membership` and `verify_non_membership` walk an ICS-23 IAVL proof against the root stored for the height, and refuse when the height has no consensus state or the client is frozen.

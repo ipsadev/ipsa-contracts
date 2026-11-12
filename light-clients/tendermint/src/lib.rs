@@ -31,6 +31,27 @@ pub enum Error {
     HeaderTimeInFuture = 13,
     RevisionMismatch = 14,
     InvalidTrustLevel = 15,
+    ValidatorSetHashMismatch = 16,
+    CommitHeightMismatch = 17,
+    BlockHashMismatch = 18,
+    BadCommitSignature = 19,
+    InsufficientVotingPower = 20,
+    TrustLevelNotMet = 21,
+    TargetHeightMismatch = 22,
+}
+
+fn header_error(reject: verify::Reject) -> Error {
+    match reject {
+        verify::Reject::Malformed => Error::InvalidHeader,
+        verify::Reject::ChainIdMismatch => Error::ChainIdMismatch,
+        verify::Reject::HeightNotAfterTrusted => Error::HeaderHeightNotAfterTrusted,
+        verify::Reject::ValidatorSetHashMismatch => Error::ValidatorSetHashMismatch,
+        verify::Reject::CommitHeightMismatch => Error::CommitHeightMismatch,
+        verify::Reject::BlockHashMismatch => Error::BlockHashMismatch,
+        verify::Reject::BadCommitSignature => Error::BadCommitSignature,
+        verify::Reject::InsufficientVotingPower => Error::InsufficientVotingPower,
+        verify::Reject::TrustLevelNotMet => Error::TrustLevelNotMet,
+    }
 }
 
 #[contracttype]
@@ -349,14 +370,14 @@ fn verify_and_extract(
             denominator: cs.trust_level.denominator as u64,
         },
     )
-    .unwrap_or_else(|| panic_with_error!(env, Error::InvalidHeader));
+    .unwrap_or_else(|reject| panic_with_error!(env, header_error(reject)));
 
     if header.target_height.revision_number != header.trusted_height.revision_number {
         panic_with_error!(env, Error::RevisionMismatch);
     }
 
     if header.target_height.revision_height != check.height {
-        panic_with_error!(env, Error::InvalidHeader);
+        panic_with_error!(env, Error::TargetHeightMismatch);
     }
 
     let now = env.ledger().timestamp();
