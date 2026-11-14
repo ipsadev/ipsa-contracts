@@ -40,7 +40,7 @@ A header that fails verification panics with a distinct `Error` so a caller, a t
 
 ## Proofs
 
-`verify_membership` and `verify_non_membership` walk an ICS-23 IAVL proof against the root stored for the height, and refuse when the height has no consensus state or the client is frozen.
+`verify_membership` and `verify_non_membership` walk a two-level ICS-23 proof (the IAVL store, then the Tendermint multistore) against the root stored for the height, and refuse when the height has no consensus state or the client is frozen. Each level is checked against its proof spec, as ibc-go's `iavl_spec` and `tendermint_spec` define them: leaf and inner hash ops, the leaf prefix, inner prefix and suffix lengths, and the IAVL height, size and version encoding. A non-membership proof must give neighbours that are adjacent in the tree: a left and right pair that meet at one inner node, or a lone left neighbour that is the rightmost leaf, or a lone right neighbour that is the leftmost. The tests check every case against the `ics23` crate.
 
 ## Wire shapes
 
