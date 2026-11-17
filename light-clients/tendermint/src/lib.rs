@@ -38,6 +38,7 @@ pub enum Error {
     InsufficientVotingPower = 20,
     TrustLevelNotMet = 21,
     TargetHeightMismatch = 22,
+    HeaderNotVerified = 23,
 }
 
 fn header_error(reject: verify::Reject) -> Error {
@@ -128,6 +129,7 @@ pub enum DataKey {
     Client(String),
     Consensus(String, u64),
     Frozen(String),
+    Verified(String),
 }
 
 #[contract]
@@ -207,6 +209,8 @@ impl TendermintLightClient {
         let check = verify_and_extract(&env, &client_id, &client_message);
         let app_hash = BytesN::from_array(&env, &check.app_hash);
 
+        record_verified(&env, &client_id, &client_message);
+
         match env
             .storage()
             .persistent()
@@ -223,6 +227,8 @@ impl TendermintLightClient {
         if cs.is_frozen {
             panic_with_error!(&env, Error::ClientFrozen);
         }
+
+        ensure_verified(&env, &client_id, &client_message);
 
         let header = decode_header(&env, &client_message);
         let check = verify::header_fields(&env, &header.signed_header_bytes)
@@ -332,6 +338,30 @@ impl TendermintLightClient {
             .map(|c| c.timestamp_secs)
             .unwrap_or(0)
     }
+}
+
+fn record_verified(env: &Env, client_id: &String, client_message: &Bytes) {
+    let hash = env.crypto().sha256(client_message).to_bytes();
+
+    env.storage()
+        .temporary()
+        .set(&DataKey::Verified(client_id.clone()), &hash);
+}
+
+fn ensure_verified(env: &Env, client_id: &String, client_message: &Bytes) {
+    let key = DataKey::Verified(client_id.clone());
+
+    let expected: BytesN<32> = env
+        .storage()
+        .temporary()
+        .get(&key)
+        .unwrap_or_else(|| panic_with_error!(env, Error::HeaderNotVerified));
+
+    if env.crypto().sha256(client_message).to_bytes() != expected {
+        panic_with_error!(env, Error::HeaderNotVerified);
+    }
+
+    env.storage().temporary().remove(&key);
 }
 
 fn verify_and_extract(

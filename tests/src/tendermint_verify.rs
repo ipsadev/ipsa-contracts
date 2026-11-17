@@ -1010,6 +1010,28 @@ fn only_the_router_can_update_the_state() {
     );
 }
 
+#[test]
+fn update_state_refuses_a_header_not_verified_in_the_same_invocation() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), trusted_next);
+    let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
+
+    assert!(
+        client.try_update_state(&cid, &msg).is_err(),
+        "update_state must refuse a header check_for_misbehaviour did not verify in the same invocation"
+    );
+
+    assert_eq!(
+        update(&client, &cid, &msg),
+        5,
+        "the verify-then-update flow still applies the header"
+    );
+}
+
 fn update_msg_with_revision(
     env: &Env,
     sh: &tendermint::block::signed_header::SignedHeader,
