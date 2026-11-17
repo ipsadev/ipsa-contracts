@@ -123,7 +123,7 @@ pub fn setup() -> Fixture {
     router.register_counterparty(
         &stellar_client,
         &sepolia_client,
-        &vec![&env, Bytes::from_slice(&env, b"ibc")],
+        &vec![&env, Bytes::from_slice(&env, b"ibc"), Bytes::new(&env)],
     );
 
     let transfer_addr = env.register(

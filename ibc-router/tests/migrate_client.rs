@@ -16,7 +16,7 @@ fn created(env: &soroban_sdk::Env, router: &stellar_ibc_router::IbcRouterClient)
     router.register_counterparty(
         &client_id,
         &String::from_str(env, "07-tendermint-0"),
-        &vec![env, Bytes::from_slice(env, b"ibc")],
+        &vec![env, Bytes::from_slice(env, b"ibc"), Bytes::new(env)],
     );
 
     client_id

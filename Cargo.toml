@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "light-clients/*",
+    "ics23",
     "testing/light-client",
     "ibc-transfer",
     "ibc-gmp",
@@ -29,6 +30,7 @@ stellar-tokens = "0.7.2"
 ipsa = { version = "0.1.0", default-features = false }
 
 ipsa-test-light-client = { path = "testing/light-client" }
+stellar-ics23 = { path = "ics23" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

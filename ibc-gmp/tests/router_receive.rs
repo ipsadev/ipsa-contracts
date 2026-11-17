@@ -84,7 +84,7 @@ fn setup() -> Fixture {
     router.register_counterparty(
         &client_id,
         &String::from_str(&env, COUNTERPARTY_CLIENT),
-        &vec![&env, Bytes::from_slice(&env, b"ibc")],
+        &vec![&env, Bytes::from_slice(&env, b"ibc"), Bytes::new(&env)],
     );
 
     let gmp_id = env.register(IbcGmpApp, (owner, router_id));

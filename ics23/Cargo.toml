@@ -1,0 +1,21 @@
+[package]
+name = "stellar-ics23"
+description = "ICS-23 membership and non-membership verification for Soroban, with one key per proof level"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+ics23 = "0.12"
+prost = "0.13"
+sha2 = "0.10"
+serde_json = "1"

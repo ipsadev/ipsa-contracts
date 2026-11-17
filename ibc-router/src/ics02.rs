@@ -7,7 +7,7 @@ use crate::{
     errors::Error,
     events::{
         ClientCreated, ClientFrozen, ClientMigrated, ClientTypeRegistered, ClientUpdated,
-        CounterpartyRegistered,
+        CounterpartyPrefixMigrated, CounterpartyRegistered,
     },
     identifiers::{validate_client_type, validate_counterparty_client_id},
     types::{Counterparty, DataKey},
@@ -33,6 +33,8 @@ pub trait Ics02 {
         counterparty_client_id: String,
         counterparty_commitment_prefix: Vec<Bytes>,
     );
+
+    fn migrate_counterparty_prefix(env: &Env, client_id: String);
 
     fn counterparty(env: &Env, client_id: String) -> Option<Counterparty>;
 
@@ -127,13 +129,13 @@ impl Ics02 for IbcRouter {
         counterparty_commitment_prefix: Vec<Bytes>,
     ) {
         validate_counterparty_client_id(env, &counterparty_client_id);
-        if !env
+
+        let light_client_address: Address = env
             .storage()
             .persistent()
-            .has(&DataKey::ClientType(client_id.clone()))
-        {
-            panic_with_error!(env, Error::ClientIdNotFound);
-        }
+            .get(&DataKey::LightClient(client_id.clone()))
+            .unwrap_or_else(|| panic_with_error!(env, Error::ClientIdNotFound));
+
         if env
             .storage()
             .persistent()
@@ -141,6 +143,19 @@ impl Ics02 for IbcRouter {
         {
             panic_with_error!(env, Error::CounterpartyAlreadyRegistered);
         }
+
+        let proof_levels: u32 = env.invoke_contract(
+            &light_client_address,
+            &Symbol::new(env, "proof_levels"),
+            Vec::new(env),
+        );
+
+        if counterparty_commitment_prefix.is_empty()
+            || counterparty_commitment_prefix.len() != proof_levels
+        {
+            panic_with_error!(env, Error::InvalidCommitmentPrefix);
+        }
+
         let cp = Counterparty {
             client_id: counterparty_client_id.clone(),
             commitment_prefix: counterparty_commitment_prefix,
@@ -152,6 +167,31 @@ impl Ics02 for IbcRouter {
         CounterpartyRegistered {
             client_id,
             counterparty_client_id,
+        }
+        .publish(env);
+    }
+
+    #[only_owner]
+    fn migrate_counterparty_prefix(env: &Env, client_id: String) {
+        let key = DataKey::Counterparty(client_id.clone());
+
+        let mut counterparty: Counterparty = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic_with_error!(env, Error::CounterpartyNotRegistered));
+
+        if counterparty.commitment_prefix.len() != 1 {
+            panic_with_error!(env, Error::PrefixNotMigratable);
+        }
+
+        counterparty.commitment_prefix.push_back(Bytes::new(env));
+
+        env.storage().persistent().set(&key, &counterparty);
+
+        CounterpartyPrefixMigrated {
+            client_id,
+            commitment_prefix: counterparty.commitment_prefix,
         }
         .publish(env);
     }

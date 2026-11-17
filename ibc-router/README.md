@@ -26,7 +26,7 @@ combined with the `ICS02ClientUpgradeable` (client registry) and
 
 | Caller | Calls |
 |---|---|
-| Off-chain admin (deploy + bootstrap) | `__constructor`, `register_client_type`, `register_counterparty`, `register_port`, `reassign_port`, `remove_port`, `migrate_client`, `upgrade` |
+| Off-chain admin (deploy + bootstrap) | `__constructor`, `register_client_type`, `register_counterparty`, `migrate_counterparty_prefix`, `register_port`, `reassign_port`, `remove_port`, `migrate_client`, `upgrade` |
 | IBC application contracts (e.g. `IbcTransferApp`) | `send_packet` (to mint a sequence + commit) |
 | Relayer (via the gateway's `StellarGatewayMsg`) | `update_client`, `recv_packet`, `acknowledge_packet`, `timeout_packet` |
 | Light-client contracts | Called *by* the router into them — not the reverse |
@@ -42,9 +42,8 @@ combined with the `ICS02ClientUpgradeable` (client registry) and
 - `create_client(client_type, client_state, consensus_state, height) -> client_id`
   — mints `{client_type}-{N}`, invokes the light client's `initialise`, emits
   `ClientCreated`.
-- `register_counterparty(client_id, counterparty_client_id, prefix: Vec<Bytes>)`
-  — owner-only; ICS-2 §RegisterCounterparty; rejects duplicate. Emits
-  `CounterpartyRegistered`.
+- `register_counterparty(client_id, counterparty_client_id, prefix: Vec<Bytes>)`: owner-only; ICS-2 §RegisterCounterparty; rejects duplicate. The prefix must have one segment per proof level of the client's light client, as its `proof_levels` reports, so `["ibc", ""]` for a Tendermint client and `[""]` for an SP1 Ethereum client. An empty prefix or one of another length is refused with `InvalidCommitmentPrefix`. Emits `CounterpartyRegistered`.
+- `migrate_counterparty_prefix(client_id)`: owner-only; rewrites a counterparty prefix registered as a single segment `[x]`, before prefixes were checked per level, into `[x, ""]`, and refuses any other shape with `PrefixNotMigratable`. Emits `CounterpartyPrefixMigrated`. It does not change what a proof must show: the router used to join every prefix segment and the packet key into one path, so `["ibc"]` meant `ibc` + key, which is what `["ibc", ""]` means now. A counterparty is registered once, so this is the only way its prefix changes.
 - `counterparty(client_id) -> Option<Counterparty>`
 - `update_client(client_id, client_message) -> u64` — checks LC misbehaviour,
   dispatches to `update_state` or `update_state_on_misbehaviour`. Emits
@@ -126,6 +125,10 @@ every leaf of the tree.
 - `recv_packet(packet, proof, proof_height)`
 - `acknowledge_packet(packet, acks, proof, proof_height)`
 - `timeout_packet(packet, proof, proof_height)`
+
+## Proof paths
+
+The router builds the path a light client proves the way ibc-go's `BuildMerklePath` does: each segment of the counterparty's commitment prefix but the last is its own key, and the ICS-24 v2 key (`{client_id} || disc || be64(seq)`) is appended to the last segment. The light client receives the path as `Vec<Bytes>`, one key per proof level, and checks each level against its own key. With the prefix `["ibc", ""]`, a packet commitment is proven at `["ibc", "08-wasm-0\x01…"]`: the multistore proof must prove the `ibc` store and the IAVL proof the packet key.
 
 ## IBC v2 flow — outbound (Stellar → counterparty)
 

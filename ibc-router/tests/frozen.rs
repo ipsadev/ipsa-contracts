@@ -126,7 +126,11 @@ fn another_client_is_unaffected_by_a_freeze() {
     f.router.register_counterparty(
         &other,
         &String::from_str(&f.env, "07-tendermint-9"),
-        &vec![&f.env, Bytes::from_slice(&f.env, b"ibc")],
+        &vec![
+            &f.env,
+            Bytes::from_slice(&f.env, b"ibc"),
+            Bytes::new(&f.env),
+        ],
     );
 
     let payload = mk_payload(&f.env, &f.port_id, b"hello");

@@ -11,10 +11,11 @@ ipsa's on-chain code: the Soroban contracts that make Stellar an IBC v2 chain. T
 | `ibc-fast-fill/` | `stellar-ibc-fast-fill` | fast path for transfers from slow-finality chains: providers pay the recipient before the packet lands, and the packet repays them |
 | `gmp-account/` | `ipsa-gmp-account` | account the message passing app derives and deploys per (client, sender, salt), and calls through |
 | `testing/light-client/` | `ipsa-test-light-client` | always-accept light client for the tests only; a library with no `cdylib`, so it is never built to wasm or released |
-| `light-clients/tendermint/` | `stellar-tendermint-light-client` | Tendermint light client: signed-header verification and ICS-23 proofs |
+| `light-clients/tendermint/` | `stellar-tendermint-light-client` | Tendermint light client: signed-header verification, with ICS-23 proofs from `stellar-ics23` |
+| `ics23/` | `stellar-ics23` | ICS-23 membership and non-membership proofs for a Cosmos SDK chain, one key per proof level; a library, not a contract |
 | `light-clients/sp1-ethereum/` | `stellar-sp1-ethereum-light-client` | Ethereum light client: SP1 proofs of the sync committee and of the router's storage, client type `sepolia` |
 | `sp1-verifier/` | `stellar-sp1-verifier` | Groth16 verification of SP1 proofs on BN254 |
-| `tests/` | `soroban-contracts-tests` | cross-contract integration tests (end to end transfer, Tendermint header and ICS-23 vectors) |
+| `tests/` | `soroban-contracts-tests` | cross-contract integration tests (end to end transfer, Tendermint headers, and ICS-23 proofs through the router and the Tendermint client) |
 
 Every contract crate is `crate-type = ["lib", "cdylib"]`, so each works both as
 a Rust dependency in cross-contract tests and as a deployable wasm contract.

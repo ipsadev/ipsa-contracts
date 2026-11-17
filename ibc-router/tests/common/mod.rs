@@ -4,7 +4,7 @@ use ipsa_test_light_client::TestLightClient;
 use soroban_sdk::{
     contract, contractimpl,
     testutils::{Address as _, Ledger},
-    vec, Address, Bytes, Env, String,
+    vec, Address, Bytes, Env, String, Vec,
 };
 use stellar_ibc_router::{
     IbcRouter, IbcRouterClient, OnAcknowledgementPacketCallback, OnRecvPacketCallback,
@@ -91,7 +91,7 @@ pub fn setup_packet_flow() -> PacketFlow {
         &1,
     );
     let counterparty_client_id = String::from_str(&env, "07-tendermint-0");
-    let prefix = vec![&env, Bytes::from_slice(&env, b"ibc")];
+    let prefix = vec![&env, Bytes::from_slice(&env, b"ibc"), Bytes::new(&env)];
     router.register_counterparty(&client_id, &counterparty_client_id, &prefix);
 
     let app = env.register(EchoApp, ());
@@ -157,7 +157,7 @@ impl ElapsedLightClient {
         _client_id: String,
         _height: u64,
         _proof: Bytes,
-        _path: Bytes,
+        _path: Vec<Bytes>,
         _value: Bytes,
     ) -> bool {
         true
@@ -168,9 +168,13 @@ impl ElapsedLightClient {
         _client_id: String,
         _height: u64,
         _proof: Bytes,
-        _path: Bytes,
+        _path: Vec<Bytes>,
     ) -> bool {
         true
+    }
+
+    pub fn proof_levels(_env: Env) -> u32 {
+        2
     }
 
     pub fn get_timestamp_at_height(_env: Env, _client_id: String, _height: u64) -> u64 {
@@ -193,7 +197,11 @@ pub fn setup_elapsed_packet_flow() -> PacketFlow {
         &Bytes::from_slice(&f.env, b"cons"),
         &1,
     );
-    let prefix = vec![&f.env, Bytes::from_slice(&f.env, b"ibc")];
+    let prefix = vec![
+        &f.env,
+        Bytes::from_slice(&f.env, b"ibc"),
+        Bytes::new(&f.env),
+    ];
 
     f.router
         .register_counterparty(&client_id, &f.counterparty_client_id, &prefix);

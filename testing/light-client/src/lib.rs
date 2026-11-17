@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Bytes, Env, String, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, Bytes, Env, String, Symbol, Vec};
 
 #[contracttype]
 #[derive(Clone)]
@@ -94,7 +94,7 @@ impl TestLightClient {
         _client_id: String,
         _height: u64,
         _proof: Bytes,
-        _path: Bytes,
+        _path: Vec<Bytes>,
         _value: Bytes,
     ) -> bool {
         true
@@ -105,9 +105,13 @@ impl TestLightClient {
         _client_id: String,
         _height: u64,
         _proof: Bytes,
-        _path: Bytes,
+        _path: Vec<Bytes>,
     ) -> bool {
         true
+    }
+
+    pub fn proof_levels(_env: Env) -> u32 {
+        2
     }
 
     pub fn get_timestamp_at_height(_env: Env, _client_id: String, _height: u64) -> u64 {

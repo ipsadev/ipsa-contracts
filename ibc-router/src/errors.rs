@@ -52,4 +52,6 @@ pub enum Error {
     ProvableStoreCorrupt = 26,
     MultiplePayloadsNotSupported = 27,
     PortHasPacketsInFlight = 28,
+    InvalidCommitmentPrefix = 29,
+    PrefixNotMigratable = 30,
 }
