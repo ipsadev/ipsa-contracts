@@ -144,17 +144,7 @@ impl Ics02 for IbcRouter {
             panic_with_error!(env, Error::CounterpartyAlreadyRegistered);
         }
 
-        let proof_levels: u32 = env.invoke_contract(
-            &light_client_address,
-            &Symbol::new(env, "proof_levels"),
-            Vec::new(env),
-        );
-
-        if counterparty_commitment_prefix.is_empty()
-            || counterparty_commitment_prefix.len() != proof_levels
-        {
-            panic_with_error!(env, Error::InvalidCommitmentPrefix);
-        }
+        require_prefix_fits(env, &light_client_address, &counterparty_commitment_prefix);
 
         let cp = Counterparty {
             client_id: counterparty_client_id.clone(),
@@ -186,6 +176,14 @@ impl Ics02 for IbcRouter {
         }
 
         counterparty.commitment_prefix.push_back(Bytes::new(env));
+
+        let light_client_address: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::LightClient(client_id.clone()))
+            .unwrap_or_else(|| panic_with_error!(env, Error::ClientIdNotFound));
+
+        require_prefix_fits(env, &light_client_address, &counterparty.commitment_prefix);
 
         env.storage().persistent().set(&key, &counterparty);
 
@@ -332,6 +330,18 @@ impl Ics02 for IbcRouter {
             .persistent()
             .get(&DataKey::Frozen(client_id))
             .unwrap_or(false)
+    }
+}
+
+fn require_prefix_fits(env: &Env, light_client_address: &Address, prefix: &Vec<Bytes>) {
+    let proof_levels: u32 = env.invoke_contract(
+        light_client_address,
+        &Symbol::new(env, "proof_levels"),
+        Vec::new(env),
+    );
+
+    if prefix.is_empty() || prefix.len() != proof_levels {
+        panic_with_error!(env, Error::InvalidCommitmentPrefix);
     }
 }
 
