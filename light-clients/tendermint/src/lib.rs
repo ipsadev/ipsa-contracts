@@ -85,8 +85,8 @@ pub struct TendermintClientState {
 #[contracttype]
 #[derive(Clone)]
 pub struct VerifiedHeader {
-    pub message_hash: BytesN<32>,
-    pub latest_height: u64,
+    pub hash: BytesN<32>,
+    pub ledger: u32,
 }
 
 #[contracttype]
@@ -209,19 +209,13 @@ impl TendermintLightClient {
     }
 
     pub fn check_for_misbehaviour(env: Env, client_id: String, client_message: Bytes) -> bool {
-        let cs = load_client_state(&env, &client_id);
-        if cs.is_frozen {
+        if load_client_state(&env, &client_id).is_frozen {
             return false;
         }
         let check = verify_and_extract(&env, &client_id, &client_message);
         let app_hash = BytesN::from_array(&env, &check.app_hash);
 
-        record_verified(
-            &env,
-            &client_id,
-            &client_message,
-            cs.latest_height.revision_height,
-        );
+        record_verified(&env, &client_id, &client_message);
 
         match env
             .storage()
@@ -240,12 +234,7 @@ impl TendermintLightClient {
             panic_with_error!(&env, Error::ClientFrozen);
         }
 
-        ensure_verified(
-            &env,
-            &client_id,
-            &client_message,
-            cs.latest_height.revision_height,
-        );
+        ensure_verified(&env, &client_id, &client_message);
 
         let header = decode_header(&env, &client_message);
         let check = verify::header_fields(&env, &header.signed_header_bytes)
@@ -361,10 +350,10 @@ impl TendermintLightClient {
     }
 }
 
-fn record_verified(env: &Env, client_id: &String, client_message: &Bytes, latest_height: u64) {
+fn record_verified(env: &Env, client_id: &String, client_message: &Bytes) {
     let record = VerifiedHeader {
-        message_hash: env.crypto().sha256(client_message).to_bytes(),
-        latest_height,
+        hash: env.crypto().sha256(client_message).to_bytes(),
+        ledger: env.ledger().sequence(),
     };
 
     env.storage()
@@ -372,18 +361,22 @@ fn record_verified(env: &Env, client_id: &String, client_message: &Bytes, latest
         .set(&DataKey::Verified(client_id.clone()), &record);
 }
 
-fn ensure_verified(env: &Env, client_id: &String, client_message: &Bytes, latest_height: u64) {
+fn ensure_verified(env: &Env, client_id: &String, client_message: &Bytes) {
+    let key = DataKey::Verified(client_id.clone());
+
     let record: VerifiedHeader = env
         .storage()
         .temporary()
-        .get(&DataKey::Verified(client_id.clone()))
+        .get(&key)
         .unwrap_or_else(|| panic_with_error!(env, Error::HeaderNotVerified));
 
-    if record.latest_height != latest_height
-        || record.message_hash != env.crypto().sha256(client_message).to_bytes()
+    if record.ledger != env.ledger().sequence()
+        || record.hash != env.crypto().sha256(client_message).to_bytes()
     {
         panic_with_error!(env, Error::HeaderNotVerified);
     }
+
+    env.storage().temporary().remove(&key);
 }
 
 fn verify_and_extract(
