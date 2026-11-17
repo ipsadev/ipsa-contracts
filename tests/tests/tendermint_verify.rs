@@ -1011,7 +1011,30 @@ fn only_the_router_can_update_the_state() {
 }
 
 #[test]
-fn update_state_refuses_a_header_not_verified_in_the_same_invocation() {
+fn update_state_refuses_a_message_the_latest_check_did_not_verify() {
+    let env = Env::default();
+    let (sh_a, vals) = gen_full(5);
+    let (sh_b, _) = gen_full(6);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh_a.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh_a, 4, sh_a.header.chain_id.as_str(), trusted_next);
+    let msg_a = build_update_msg(&env, &sh_a, &vs_bytes, 4);
+    let msg_b = build_update_msg(&env, &sh_b, &vs_bytes, 4);
+
+    assert!(
+        !client.check_for_misbehaviour(&cid, &msg_a),
+        "the header verified by check_for_misbehaviour is A"
+    );
+
+    assert!(
+        client.try_update_state(&cid, &msg_b).is_err(),
+        "update_state must refuse a different header than the one the latest check verified"
+    );
+}
+
+#[test]
+fn update_state_applies_a_verified_header_only_once() {
     let env = Env::default();
     let (sh, vals) = gen_full(5);
     let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
@@ -1020,15 +1043,32 @@ fn update_state_refuses_a_header_not_verified_in_the_same_invocation() {
     let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), trusted_next);
     let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
 
+    assert_eq!(update(&client, &cid, &msg), 5, "the first update applies");
+
     assert!(
         client.try_update_state(&cid, &msg).is_err(),
-        "update_state must refuse a header check_for_misbehaviour did not verify in the same invocation"
+        "the record is bound to the trusted height the check ran against, so replaying the same header after it moved the client is refused"
     );
+}
 
-    assert_eq!(
-        update(&client, &cid, &msg),
-        5,
-        "the verify-then-update flow still applies the header"
+#[test]
+fn a_verification_record_is_stale_after_a_later_update_advances_the_client() {
+    let env = Env::default();
+    let (sh_a, vals) = gen_full(5);
+    let (sh_b, _) = gen_full(6);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh_a.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh_a, 4, sh_a.header.chain_id.as_str(), trusted_next);
+    let msg_a = build_update_msg(&env, &sh_a, &vs_bytes, 4);
+    let msg_b = build_update_msg(&env, &sh_b, &vs_bytes, 4);
+
+    assert_eq!(update(&client, &cid, &msg_a), 5);
+    assert_eq!(update(&client, &cid, &msg_b), 6);
+
+    assert!(
+        client.try_update_state(&cid, &msg_a).is_err(),
+        "a record made against an earlier trusted state no longer authorises an update once a later update has landed"
     );
 }
 

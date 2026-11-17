@@ -24,7 +24,9 @@ On the Cosmos Hub testnet, with 113 validators, an update across a validator set
 
 ### The router's two-step update, and why the order matters
 
-The router drives an update in a single invocation: it calls `check_for_misbehaviour` first, then `update_state`. `check_for_misbehaviour` is where the header is fully verified (the checks above); when it passes it records the sha256 of the update message. `update_state` does not verify the header a second time. It refuses any message whose hash `check_for_misbehaviour` did not record in the same invocation, then consumes the record and applies the already-verified header. So a header is verified exactly once per update, and `update_state` cannot be made to apply a header that was never verified, even though it is only reachable through the admin (the router). Calling `update_state` without `check_for_misbehaviour` first is refused with `HeaderNotVerified`.
+The router drives an update in a single invocation: it calls `check_for_misbehaviour` first, then `update_state`. `check_for_misbehaviour` is where the header is fully verified (the checks above); when it passes it records the sha256 of the update message together with the client's current latest height. `update_state` does not verify the header a second time. It applies a header only when that header was the one verified by the latest `check_for_misbehaviour` for this client, against the current trusted state: the recorded hash must match the message, and the latest height must not have changed since the record was made. Anything else is refused with `HeaderNotVerified`.
+
+So a header is verified exactly once per update, `update_state` cannot be made to apply a header that was never verified (even though it is only reachable through the admin, the router), and a record goes stale as soon as any other update lands, because that moves the latest height. Binding the record to the trusted state is what makes it single-use: once an update advances the client, the record no longer authorises anything.
 
 ## Rejection reasons
 
