@@ -1,11 +1,12 @@
+#[path = "../../ics23/tests/common/mod.rs"]
+#[allow(dead_code)]
+mod common;
+
+use common::{b, keys, membership_fixture, non_membership_fixture, store_keys, STORE};
 use soroban_sdk::{testutils::Address as _, xdr::ToXdr, Bytes, BytesN, Env, String};
 use stellar_tendermint_light_client::{
     Height, TendermintClientState, TendermintConsensusState, TendermintLightClient,
     TendermintLightClientClient, TrustThreshold,
-};
-
-use crate::ics23_fixtures::{
-    b, keys, membership_fixture, non_membership_fixture, store_keys, STORE,
 };
 
 fn setup(env: &Env, root: [u8; 32], height: u64) -> (TendermintLightClientClient<'static>, String) {

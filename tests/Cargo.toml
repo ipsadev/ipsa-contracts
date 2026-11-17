@@ -5,9 +5,6 @@ edition = "2021"
 license = { workspace = true }
 publish = false
 
-[lib]
-doctest = false
-
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 stellar-ibc-router = { path = "../ibc-router" }

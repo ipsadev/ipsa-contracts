@@ -1,3 +1,8 @@
+#[path = "../../ics23/tests/common/mod.rs"]
+#[allow(dead_code)]
+mod common;
+
+use common::{exist_cp, iavl_tree, merkle_bytes, multistore};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     vec,
@@ -12,8 +17,6 @@ use stellar_ibc_transfer::{
 use stellar_tendermint_light_client::{
     Height, TendermintClientState, TendermintConsensusState, TendermintLightClient, TrustThreshold,
 };
-
-use crate::ics23_fixtures::{exist_cp, iavl_tree, merkle_bytes, multistore};
 
 const HEIGHT: u64 = 10;
 const COUNTERPARTY: &str = "08-wasm-0";
