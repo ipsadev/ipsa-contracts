@@ -39,8 +39,12 @@ fn deploy_light_client(env: &Env, router: &Address) -> Address {
 }
 
 fn client_state(env: &Env, height: u64) -> Bytes {
+    client_state_on(env, "simd-1", height)
+}
+
+fn client_state_on(env: &Env, chain_id: &str, height: u64) -> Bytes {
     TendermintClientState {
-        chain_id: String::from_str(env, "simd-1"),
+        chain_id: String::from_str(env, chain_id),
         trust_level: TrustThreshold {
             numerator: 1,
             denominator: 3,
@@ -196,6 +200,104 @@ fn migration_initialises_the_replacement_through_the_router() {
     );
     assert_eq!(replacement.latest_height(&client_id), 20);
     assert_eq!(original.latest_height(&client_id), 10);
+}
+
+fn create_on(
+    net: &Net,
+    chain_id: &str,
+    height: u64,
+) -> (String, TendermintLightClientClient<'static>) {
+    let client_id = net.router.create_client(
+        &String::from_str(&net.env, CLIENT_TYPE),
+        &client_state_on(&net.env, chain_id, height),
+        &consensus_state(&net.env, 0xbb),
+        &height,
+    );
+
+    let address = net
+        .router
+        .light_client_address(&client_id)
+        .expect("created");
+
+    (
+        client_id,
+        TendermintLightClientClient::new(&net.env, &address),
+    )
+}
+
+#[test]
+fn recovery_through_the_router_heals_a_frozen_subject() {
+    let net = setup();
+    net.env.mock_all_auths();
+
+    let (subject_id, subject) = create(&net);
+    let (substitute_id, _substitute) = create_on(&net, "simd-1", 20);
+
+    subject.update_state_on_misbehaviour(&subject_id, &Bytes::new(&net.env));
+    assert!(subject.frozen(&subject_id));
+
+    net.router.recover_client(&subject_id, &substitute_id);
+
+    assert!(!subject.frozen(&subject_id));
+    assert!(!net.router.frozen(&subject_id));
+    assert_eq!(subject.latest_height(&subject_id), 20);
+}
+
+#[test]
+fn recovery_through_the_router_refuses_a_cross_chain_substitute() {
+    let net = setup();
+    net.env.mock_all_auths();
+
+    let (subject_id, subject) = create(&net);
+    let (substitute_id, _substitute) = create_on(&net, "other-1", 20);
+
+    assert!(net
+        .router
+        .try_recover_client(&subject_id, &substitute_id)
+        .is_err());
+    assert_eq!(subject.latest_height(&subject_id), 10);
+}
+
+#[test]
+fn recovery_refuses_a_substitute_on_another_light_client() {
+    let net = setup();
+    net.env.mock_all_auths();
+
+    let (subject_id, _subject) = create(&net);
+
+    // a second light client, registered under its own client type
+    let other_lc = deploy_light_client(&net.env, &net.router_address);
+    let other_type = String::from_str(&net.env, "07-tendermint-b");
+    net.router.register_client_type(&other_type, &other_lc);
+    let substitute_id = net.router.create_client(
+        &other_type,
+        &client_state_on(&net.env, "simd-1", 20),
+        &consensus_state(&net.env, 0xbb),
+        &20,
+    );
+
+    let result = net.router.try_recover_client(&subject_id, &substitute_id);
+
+    assert_eq!(
+        result,
+        Err(Ok(stellar_ibc_router::Error::SubstituteMismatch.into()))
+    );
+}
+
+#[test]
+fn a_stranger_cannot_recover_a_client() {
+    let net = setup();
+    net.env.mock_all_auths();
+
+    let (subject_id, _subject) = create(&net);
+    let (substitute_id, _substitute) = create_on(&net, "simd-1", 20);
+
+    net.env.set_auths(&[]);
+
+    assert!(net
+        .router
+        .try_recover_client(&subject_id, &substitute_id)
+        .is_err());
 }
 
 #[test]

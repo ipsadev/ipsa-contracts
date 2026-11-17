@@ -17,9 +17,9 @@ mod types;
 
 pub use errors::Error;
 pub use events::{
-    AckPacket, ClientCreated, ClientFrozen, ClientMigrated, ClientTypeRegistered, ClientUpdated,
-    CounterpartyPrefixMigrated, CounterpartyRegistered, PortReassigned, PortRegistered,
-    PortRemoved, RecvPacket, SendPacket, TimeoutPacket, WriteAck,
+    AckPacket, ClientCreated, ClientFrozen, ClientMigrated, ClientRecovered, ClientTypeRegistered,
+    ClientUpdated, CounterpartyPrefixMigrated, CounterpartyRegistered, PortReassigned,
+    PortRegistered, PortRemoved, RecvPacket, SendPacket, TimeoutPacket, WriteAck,
 };
 pub use ics02::Ics02;
 pub use ics04::Ics04;

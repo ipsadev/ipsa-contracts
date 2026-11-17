@@ -277,6 +277,50 @@ impl TendermintLightClient {
             .set(&DataKey::Frozen(client_id), &true);
     }
 
+    #[only_admin]
+    pub fn recover(env: Env, subject_client_id: String, substitute_client_id: String) {
+        let subject = load_client_state(&env, &subject_client_id);
+        let substitute = load_client_state(&env, &substitute_client_id);
+
+        if subject.chain_id != substitute.chain_id {
+            panic_with_error!(&env, Error::ChainIdMismatch);
+        }
+
+        if substitute.is_frozen {
+            panic_with_error!(&env, Error::ClientFrozen);
+        }
+
+        let height = substitute.latest_height.revision_height;
+        let cons = load_consensus_state(&env, &substitute_client_id, height);
+
+        env.storage().persistent().set(
+            &DataKey::Consensus(subject_client_id.clone(), height),
+            &cons,
+        );
+
+        let recovered = TendermintClientState {
+            chain_id: subject.chain_id,
+            trust_level: subject.trust_level,
+            trusting_period_secs: substitute.trusting_period_secs,
+            unbonding_period_secs: subject.unbonding_period_secs,
+            max_clock_drift_secs: subject.max_clock_drift_secs,
+            latest_height: substitute.latest_height,
+            is_frozen: false,
+            frozen_height: Height {
+                revision_number: 0,
+                revision_height: 0,
+            },
+            proof_specs: subject.proof_specs,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Client(subject_client_id.clone()), &recovered);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Frozen(subject_client_id));
+    }
+
     pub fn frozen(env: Env, client_id: String) -> bool {
         env.storage()
             .persistent()

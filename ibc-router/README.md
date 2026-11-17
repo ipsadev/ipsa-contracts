@@ -26,7 +26,7 @@ combined with the `ICS02ClientUpgradeable` (client registry) and
 
 | Caller | Calls |
 |---|---|
-| Off-chain admin (deploy + bootstrap) | `__constructor`, `register_client_type`, `register_counterparty`, `migrate_counterparty_prefix`, `register_port`, `reassign_port`, `remove_port`, `migrate_client`, `upgrade` |
+| Off-chain admin (deploy + bootstrap) | `__constructor`, `register_client_type`, `register_counterparty`, `migrate_counterparty_prefix`, `register_port`, `reassign_port`, `remove_port`, `migrate_client`, `recover_client`, `upgrade` |
 | IBC application contracts (e.g. `IbcTransferApp`) | `send_packet` (to mint a sequence + commit) |
 | Relayer (via the gateway's `StellarGatewayMsg`) | `update_client`, `recv_packet`, `acknowledge_packet`, `timeout_packet` |
 | Light-client contracts | Called *by* the router into them — not the reverse |
@@ -70,6 +70,10 @@ combined with the `ICS02ClientUpgradeable` (client registry) and
   committee period — takes its id with it. A new id then restarts sequences on
   this side while the counterparty still holds receipts for the old ones, and the
   first packets collide.
+
+- `recover_client(subject_client_id, substitute_client_id)`: owner-only; ICS-02's `recoverClient`, as ibc-go's governance client recovery has it. It heals a client that can no longer be updated, one frozen by misbehaviour or expired past its trusting period, in place, from a healthy substitute of the same chain that is already synced on the same light client. Both ids must resolve to the same light client address, so the substitute is a sibling client of the same type, or the call is refused with `SubstituteMismatch`. The router invokes the light client's `recover`, which copies the substitute's latest consensus state and height onto the subject and clears its frozen flag; it refuses a substitute on another chain with the light client's `ChainIdMismatch`, and a frozen substitute with its `ClientFrozen`. The router then clears its own frozen flag for the subject and emits `ClientRecovered`. The counterparty, sequences, commitments, receipts and acks all stay, as with `migrate_client`, because they live here and are keyed by the subject's client id.
+
+  Recovery differs from `migrate_client`: migration points the id at a freshly deployed light client the owner seeds by hand, while recovery reuses a substitute client already running and synced on the same light client, so it needs no new deployment and no hand-supplied state. Recovery is implemented by the Tendermint light client; a light client that does not expose `recover` cannot be recovered this way.
 
 **Code:**
 - `upgrade(wasm_hash)` — owner-only; replaces this contract's code in place.

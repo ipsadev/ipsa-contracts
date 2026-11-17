@@ -54,4 +54,6 @@ pub enum Error {
     PortHasPacketsInFlight = 28,
     InvalidCommitmentPrefix = 29,
     PrefixNotMigratable = 30,
+    /// The substitute is not served by the same light client as the subject, so it cannot recover it.
+    SubstituteMismatch = 31,
 }

@@ -28,6 +28,10 @@ The router drives an update in a single invocation: it calls `check_for_misbehav
 
 So a header is verified exactly once per update, and `update_state` cannot be made to apply a header that was never verified, even though it is only reachable through the admin (the router). Soroban has no storage that clears at the end of a call, so the record is bound to the ledger (which closes about every five seconds) and consumed on use: a record left behind by a `check_for_misbehaviour` that no `update_state` followed stops authorising anything as soon as the next ledger closes.
 
+### Recovery
+
+`recover(subject_client_id, substitute_client_id)` heals a client that can no longer be updated, one frozen by misbehaviour or expired past its trusting period, from a healthy substitute of the same chain. It is how ibc-go's governance client recovery works, narrowed to a same-chain substitute. The substitute must be another client on this same contract: `recover` reads both from its own storage. It refuses a substitute on another chain with `ChainIdMismatch`, and a frozen substitute with `ClientFrozen`, since a frozen client heals nothing. Otherwise it copies the substitute's consensus state at its latest height onto the subject, sets the subject's latest height and trusting period to the substitute's, zeroes the frozen height, and clears the frozen flag. The subject keeps its own trust level, unbonding period, clock drift and proof specs. The subject can be updated again from the substitute's height, with a fresh consensus state inside the trusting period. `recover` is `#[only_admin]`, so only the router reaches it, through `recover_client`.
+
 ## Rejection reasons
 
 A header that fails verification panics with a distinct `Error` so a caller, a test, or an on-chain negative-path check can tell which invariant it broke rather than reading one opaque failure. The checks run in this order, and the first one to fail decides the code:
@@ -91,13 +95,13 @@ struct Misbehaviour { header_a: TendermintHeader, header_b: TendermintHeader }
 
 ## Entrypoints
 
-`initialise`, `latest_height`, `client_state`, `consensus_state`, `verify_client_message`, `check_for_misbehaviour`, `update_state`, `update_state_on_misbehaviour`, `frozen`, `verify_membership`, `verify_non_membership`, `proof_levels`, `get_timestamp_at_height`.
+`initialise`, `latest_height`, `client_state`, `consensus_state`, `verify_client_message`, `check_for_misbehaviour`, `update_state`, `update_state_on_misbehaviour`, `recover`, `frozen`, `verify_membership`, `verify_non_membership`, `proof_levels`, `get_timestamp_at_height`.
 
 `check_for_misbehaviour` reports a verified header whose root differs from the one already stored for its height.
 
 ## Access
 
-The contract is deployed with the router's address (`__constructor(router)`), which becomes its OpenZeppelin access-control admin. `initialise` and `update_state_on_misbehaviour` are `#[only_admin]`, so only the router reaches them: `create_client` and `migrate_client` for the first, and `update_client` after `check_for_misbehaviour` for the second. A client id is initialised once; a second `initialise` for it panics with `ClientAlreadyInitialised`.
+The contract is deployed with the router's address (`__constructor(router)`), which becomes its OpenZeppelin access-control admin. `initialise`, `update_state_on_misbehaviour` and `recover` are `#[only_admin]`, so only the router reaches them: `create_client` and `migrate_client` for the first, `update_client` after `check_for_misbehaviour` for the second, and `recover_client` for the third. A client id is initialised once; a second `initialise` for it panics with `ClientAlreadyInitialised`.
 
 The contract has no `upgrade`: a deployed client moves to new code through the router's `migrate_client`, which initialises a new light client for the same client id with its current client and consensus state.
 
