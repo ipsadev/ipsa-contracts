@@ -40,7 +40,7 @@ A header that fails verification panics with a distinct `Error` so a caller, a t
 
 ## Proofs
 
-`verify_membership` and `verify_non_membership` take the proof and the path as a list of keys, one per proof level, and check them against the root stored for the height with the [`stellar-ics23`](../../ics23) crate. They refuse when the height has no consensus state or the client is frozen. The crate's README lists the proof specs it enforces and the path layout it expects. `proof_levels` returns 2, the number of keys the router must pass, so the router refuses a counterparty prefix of any other length when it is registered.
+`verify_membership` and `verify_non_membership` take the proof and the path as a list of keys, one per proof level, and check them against the root stored for the height with the [`ipsa-ics23`](../../ics23) crate. They refuse when the height has no consensus state or the client is frozen. The crate's README lists the proof specs it enforces and the path layout it expects. `proof_levels` returns 2, the number of keys the router must pass, so the router refuses a counterparty prefix of any other length when it is registered.
 
 ## Wire shapes
 
@@ -107,7 +107,7 @@ relayer --(UpdateClient, RecvPacket, ...)--> gateway --(Soroban invoke)--> IbcRo
                                                                               v
                                                               TendermintLightClient (this crate)
                                                               update_state: commit signatures
-                                                              verify_membership: stellar-ics23
+                                                              verify_membership: ipsa-ics23
 ```
 
 ## When to use it

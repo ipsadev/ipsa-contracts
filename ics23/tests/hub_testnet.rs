@@ -1,6 +1,6 @@
+use ipsa_ics23::{verify_membership, verify_non_membership};
 use serde_json::Value;
 use soroban_sdk::{Bytes, Env, Vec};
-use stellar_ics23::{verify_membership, verify_non_membership};
 
 const FIXTURE: &str = include_str!("fixtures/hub-testnet-08-wasm-464.json");
 

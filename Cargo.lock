@@ -1100,6 +1100,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ipsa-ics23"
+version = "0.2.0"
+dependencies = [
+ "ics23",
+ "prost",
+ "serde_json",
+ "sha2 0.10.9",
+ "soroban-sdk",
+]
+
+[[package]]
 name = "ipsa-test-light-client"
 version = "0.1.0"
 dependencies = [
@@ -2003,17 +2014,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "stellar-ics23"
-version = "0.2.0"
-dependencies = [
- "ics23",
- "prost",
- "serde_json",
- "sha2 0.10.9",
- "soroban-sdk",
-]
-
-[[package]]
 name = "stellar-macros"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2066,9 +2066,9 @@ dependencies = [
 name = "stellar-tendermint-light-client"
 version = "0.1.0"
 dependencies = [
+ "ipsa-ics23",
  "soroban-sdk",
  "stellar-access",
- "stellar-ics23",
  "stellar-macros",
 ]
 

@@ -1,5 +1,5 @@
 [package]
-name = "stellar-ics23"
+name = "ipsa-ics23"
 description = "ICS-23 membership and non-membership verification for Soroban, with one key per proof level"
 version = { workspace = true }
 edition = { workspace = true }

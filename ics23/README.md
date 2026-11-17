@@ -1,4 +1,4 @@
-# `stellar-ics23`: ICS-23 proofs for Soroban
+# `ipsa-ics23`: ICS-23 proofs for Soroban
 
 Verifies ICS-23 membership and non-membership proofs from a Cosmos SDK chain against a 32-byte app hash, in a Soroban contract. The Tendermint light client depends on it, so header verification and proof verification live in separate crates. It is a library, with no contract of its own.
 

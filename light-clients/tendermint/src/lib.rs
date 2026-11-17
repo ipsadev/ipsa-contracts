@@ -295,7 +295,7 @@ impl TendermintLightClient {
 
         let root = consensus.root.to_array();
 
-        stellar_ics23::verify_membership(&env, &root, &proof, &path, &value)
+        ipsa_ics23::verify_membership(&env, &root, &proof, &path, &value)
     }
 
     pub fn verify_non_membership(
@@ -321,11 +321,11 @@ impl TendermintLightClient {
 
         let root = consensus.root.to_array();
 
-        stellar_ics23::verify_non_membership(&env, &root, &proof, &path)
+        ipsa_ics23::verify_non_membership(&env, &root, &proof, &path)
     }
 
     pub fn proof_levels(_env: Env) -> u32 {
-        stellar_ics23::PROOF_LEVELS
+        ipsa_ics23::PROOF_LEVELS
     }
 
     pub fn get_timestamp_at_height(env: Env, client_id: String, height: u64) -> u64 {

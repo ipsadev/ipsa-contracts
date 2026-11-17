@@ -6,8 +6,8 @@ use common::{
     reference_root, store_keys, Receipts, STORE,
 };
 use ics23::NonExistenceProof;
+use ipsa_ics23::{verify_membership, verify_non_membership};
 use soroban_sdk::Env;
-use stellar_ics23::{verify_membership, verify_non_membership};
 
 fn reference_accepts_absence(
     r: &Receipts,
@@ -62,7 +62,7 @@ fn assert_absence(key: &[u8], left: Option<usize>, right: Option<usize>, expecte
     assert_eq!(
         crate_accepts_absence(&r, key, left, right),
         expected,
-        "stellar-ics23"
+        "ipsa-ics23"
     );
 }
 
