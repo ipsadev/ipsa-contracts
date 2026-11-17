@@ -44,12 +44,12 @@ fn register_counterparty_stores_mapping() {
     );
 
     let counterparty_id = String::from_str(&env, "07-tendermint-0");
-    let prefix = vec![&env, Bytes::from_slice(&env, b"ibc")];
+    let prefix = vec![&env, Bytes::from_slice(&env, b"ibc"), Bytes::new(&env)];
     router.register_counterparty(&id, &counterparty_id, &prefix);
 
     let cp = router.counterparty(&id).unwrap();
     assert_eq!(cp.client_id, counterparty_id);
-    assert_eq!(cp.commitment_prefix.len(), 1);
+    assert_eq!(cp.commitment_prefix.len(), 2);
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn register_counterparty_rejects_duplicate() {
         &1,
     );
     let cp_id = String::from_str(&env, "07-tendermint-0");
-    let prefix = vec![&env, Bytes::from_slice(&env, b"ibc")];
+    let prefix = vec![&env, Bytes::from_slice(&env, b"ibc"), Bytes::new(&env)];
     router.register_counterparty(&id, &cp_id, &prefix);
 
     let result = router.try_register_counterparty(&id, &cp_id, &prefix);
@@ -75,7 +75,7 @@ fn register_counterparty_rejects_unknown_client() {
     let result = router.try_register_counterparty(
         &String::from_str(&env, "test-999"),
         &String::from_str(&env, "07-tendermint-0"),
-        &vec![&env, Bytes::from_slice(&env, b"ibc")],
+        &vec![&env, Bytes::from_slice(&env, b"ibc"), Bytes::new(&env)],
     );
     assert_eq!(result, Err(Ok(Error::ClientIdNotFound.into())));
 }
@@ -114,7 +114,7 @@ fn register_counterparty_requires_authorisation() {
     let result = router.try_register_counterparty(
         &id,
         &String::from_str(&env, "07-tendermint-0"),
-        &vec![&env, Bytes::from_slice(&env, b"ibc")],
+        &vec![&env, Bytes::from_slice(&env, b"ibc"), Bytes::new(&env)],
     );
 
     assert!(

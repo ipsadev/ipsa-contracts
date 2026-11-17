@@ -1,3 +1,5 @@
+#![no_std]
+
 use soroban_sdk::{Bytes, Env, Vec};
 
 const HASH_OP_NO_HASH: u64 = 0;
@@ -13,7 +15,7 @@ const KIND_EXIST: u8 = 1;
 const KIND_NONEXIST: u8 = 2;
 
 const LEAF_PREFIX: u8 = 0x00;
-const PROOF_LEVELS: u32 = 2;
+pub const PROOF_LEVELS: u32 = 2;
 
 struct ProofSpec {
     child_size: u32,
@@ -59,11 +61,11 @@ pub fn verify_membership(
     env: &Env,
     root: &[u8; 32],
     proof: &Bytes,
-    path: &Bytes,
+    keys: &Vec<Bytes>,
     value: &Bytes,
 ) -> bool {
     let proofs = match collect_commitment_proofs(env, proof) {
-        Some(p) if p.len() == PROOF_LEVELS => p,
+        Some(p) if p.len() == PROOF_LEVELS && keys.len() == PROOF_LEVELS => p,
         _ => return false,
     };
 
@@ -75,7 +77,7 @@ pub fn verify_membership(
             Some(v) => v,
             None => return false,
         };
-        if kind != KIND_EXIST {
+        if kind != KIND_EXIST || !key_at_level(&sub, keys, i) {
             return false;
         }
         let expected = if i == 0 {
@@ -96,16 +98,12 @@ pub fn verify_membership(
         };
     }
 
-    if current.unwrap() != *root {
-        return false;
-    }
-
-    keys_match(env, &proofs, path)
+    current.unwrap() == *root
 }
 
-pub fn verify_non_membership(env: &Env, root: &[u8; 32], proof: &Bytes, path: &Bytes) -> bool {
+pub fn verify_non_membership(env: &Env, root: &[u8; 32], proof: &Bytes, keys: &Vec<Bytes>) -> bool {
     let proofs = match collect_commitment_proofs(env, proof) {
-        Some(p) if p.len() == PROOF_LEVELS => p,
+        Some(p) if p.len() == PROOF_LEVELS && keys.len() == PROOF_LEVELS => p,
         _ => return false,
     };
 
@@ -117,6 +115,9 @@ pub fn verify_non_membership(env: &Env, root: &[u8; 32], proof: &Bytes, path: &B
             Some(v) => v,
             None => return false,
         };
+        if !key_at_level(&sub, keys, i) {
+            return false;
+        }
         if i == 0 {
             if kind != KIND_NONEXIST {
                 return false;
@@ -143,32 +144,13 @@ pub fn verify_non_membership(env: &Env, root: &[u8; 32], proof: &Bytes, path: &B
         }
     }
 
-    if current.unwrap() != *root {
-        return false;
-    }
-
-    keys_match(env, &proofs, path)
+    current.unwrap() == *root
 }
 
-fn keys_match(env: &Env, proofs: &Vec<Bytes>, path: &Bytes) -> bool {
-    let mut expected = Bytes::new(env);
+fn key_at_level(sub: &Bytes, keys: &Vec<Bytes>, level: u32) -> bool {
+    let expected = keys.get(keys.len() - 1 - level).unwrap();
 
-    let mut i = proofs.len();
-    while i > 0 {
-        i -= 1;
-        let cp = proofs.get(i).unwrap();
-        let sub = match commitment_submessage(&cp) {
-            Some((_, sub)) => sub,
-            None => return false,
-        };
-        let key = match message_field(&sub, 1) {
-            Some(k) => k,
-            None => return false,
-        };
-        expected.append(&key);
-    }
-
-    &expected == path
+    message_field(sub, 1) == Some(expected)
 }
 
 fn non_existence_root(env: &Env, ne: &Bytes, spec: &ProofSpec) -> Option<[u8; 32]> {

@@ -44,7 +44,7 @@ pub fn setup() -> Fixture {
     router.register_counterparty(
         &source_client_id,
         &counterparty_client_id,
-        &vec![&env, Bytes::from_slice(&env, b"ibc")],
+        &vec![&env, Bytes::from_slice(&env, b"ibc"), Bytes::new(&env)],
     );
 
     let transfer_admin = Address::generate(&env);

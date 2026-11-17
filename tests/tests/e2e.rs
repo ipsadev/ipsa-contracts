@@ -79,7 +79,7 @@ fn setup() -> Net {
     router.register_counterparty(
         &client_id,
         &counterparty_id,
-        &vec![&env, Bytes::from_slice(&env, b"ibc")],
+        &vec![&env, Bytes::from_slice(&env, b"ibc"), Bytes::new(&env)],
     );
 
     let transfer_admin = Address::generate(&env);

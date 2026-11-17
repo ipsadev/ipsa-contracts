@@ -36,7 +36,7 @@ fn client_lifecycle_publishes_events() {
     router.register_counterparty(
         &client_id,
         &counterparty_client_id,
-        &vec![&env, Bytes::from_slice(&env, b"ibc")],
+        &vec![&env, Bytes::from_slice(&env, b"ibc"), Bytes::new(&env)],
     );
 
     let registered = CounterpartyRegistered {

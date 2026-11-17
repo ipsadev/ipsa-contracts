@@ -4,7 +4,8 @@ mod membership;
 mod wire;
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, String, Symbol,
+    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, String,
+    Symbol, Vec,
 };
 use stellar_access::access_control::set_admin;
 use stellar_macros::only_admin;
@@ -180,7 +181,7 @@ impl Sp1EthereumLightClient {
         client_id: String,
         proof_height: u64,
         proof: Bytes,
-        path: Bytes,
+        path: Vec<Bytes>,
         value: Bytes,
     ) -> bool {
         Self::prove(env, client_id, proof_height, proof, path, value)
@@ -191,11 +192,15 @@ impl Sp1EthereumLightClient {
         client_id: String,
         proof_height: u64,
         proof: Bytes,
-        path: Bytes,
+        path: Vec<Bytes>,
     ) -> bool {
         let empty = Bytes::new(&env);
 
         Self::prove(env, client_id, proof_height, proof, path, empty)
+    }
+
+    pub fn proof_levels(_env: Env) -> u32 {
+        1
     }
 
     pub fn check_for_misbehaviour(_env: Env, _client_id: String, _client_message: Bytes) -> bool {
@@ -211,7 +216,7 @@ impl Sp1EthereumLightClient {
         client_id: String,
         proof_height: u64,
         proof: Bytes,
-        path: Bytes,
+        path: Vec<Bytes>,
         value: Bytes,
     ) -> bool {
         if Self::frozen(env.clone(), client_id.clone()) {
