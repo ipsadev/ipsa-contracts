@@ -22,6 +22,12 @@ A header without `trusted_validator_set_bytes`, the shape gateways sent before i
 
 On the Cosmos Hub testnet, with 113 validators, an update across a validator set change costs about 152M CPU instructions in the wasm, and an update with an unchanged set about 118M. The network allows 400M per transaction.
 
+### The router's two-step update, and why the order matters
+
+The router drives an update in a single invocation: it calls `check_for_misbehaviour` first, then `update_state`. `check_for_misbehaviour` is where the header is fully verified (the checks above); when it passes it records the sha256 of the update message together with the current ledger sequence. `update_state` does not verify the header a second time. It applies a header only when that header is the one `check_for_misbehaviour` verified for this client in the same ledger: the recorded hash must match the message and the recorded ledger must be the current one. It then consumes the record. Anything else is refused with `HeaderNotVerified`.
+
+So a header is verified exactly once per update, and `update_state` cannot be made to apply a header that was never verified, even though it is only reachable through the admin (the router). Soroban has no storage that clears at the end of a call, so the record is bound to the ledger (which closes about every five seconds) and consumed on use: a record left behind by a `check_for_misbehaviour` that no `update_state` followed stops authorising anything as soon as the next ledger closes.
+
 ## Rejection reasons
 
 A header that fails verification panics with a distinct `Error` so a caller, a test, or an on-chain negative-path check can tell which invariant it broke rather than reading one opaque failure. The checks run in this order, and the first one to fail decides the code:

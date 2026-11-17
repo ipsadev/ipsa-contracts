@@ -1010,6 +1010,55 @@ fn only_the_router_can_update_the_state() {
     );
 }
 
+#[test]
+fn update_state_refuses_a_message_other_than_the_one_verified() {
+    let env = Env::default();
+    let (sh_new, vals) = gen_full(7);
+    let (sh_old, _) = gen_full(5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh_new.header.validators_hash);
+    let (client, cid) = setup_client(
+        &env,
+        &sh_new,
+        4,
+        sh_new.header.chain_id.as_str(),
+        trusted_next,
+    );
+
+    let a = build_update_msg(&env, &sh_new, &vs_bytes, 4);
+    let b = build_update_msg(&env, &sh_old, &vs_bytes, 4);
+
+    assert!(!client.check_for_misbehaviour(&cid, &a));
+    assert!(client.try_update_state(&cid, &b).is_err());
+}
+
+#[test]
+fn a_verified_header_is_applied_only_once() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh.header.validators_hash);
+    let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), trusted_next);
+    let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
+
+    assert_eq!(update(&client, &cid, &msg), 5);
+    assert!(client.try_update_state(&cid, &msg).is_err());
+}
+
+#[test]
+fn a_header_verified_in_an_earlier_ledger_is_refused() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh.header.validators_hash);
+    let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), trusted_next);
+    let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
+
+    assert!(!client.check_for_misbehaviour(&cid, &msg));
+    env.ledger().with_mut(|l| l.sequence_number += 1);
+    assert!(client.try_update_state(&cid, &msg).is_err());
+}
+
 fn update_msg_with_revision(
     env: &Env,
     sh: &tendermint::block::signed_header::SignedHeader,
