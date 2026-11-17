@@ -2,7 +2,7 @@ extern crate alloc;
 
 use soroban_sdk::{
     testutils::{Address as _, AuthorizedFunction},
-    Address, Bytes, BytesN, Env, String,
+    vec, Address, Bytes, BytesN, Env, String,
 };
 use stellar_sp1_ethereum_light_client::{Sp1EthereumLightClient, Sp1EthereumLightClientClient};
 
@@ -346,11 +346,12 @@ fn a_real_packet_is_proven_against_a_header_this_client_verified() {
             &from(MEMBERSHIP, "publicValues"),
             &from(MEMBERSHIP, "proof"),
         ),
-        &path,
+        &vec![&f.env, path],
         &value,
     );
 
     assert!(proven, "the packet is in the state the header established");
+    assert_eq!(f.client.proof_levels(), 1);
 }
 
 #[test]
@@ -374,7 +375,7 @@ fn a_membership_proof_of_another_packet_is_refused() {
             &from(MEMBERSHIP, "publicValues"),
             &from(MEMBERSHIP, "proof"),
         ),
-        &path,
+        &vec![&f.env, path],
         &value,
     );
 }

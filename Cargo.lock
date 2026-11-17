@@ -1100,6 +1100,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ipsa-ics23"
+version = "0.2.0"
+dependencies = [
+ "ics23",
+ "prost",
+ "serde_json",
+ "sha2 0.10.9",
+ "soroban-sdk",
+]
+
+[[package]]
 name = "ipsa-test-light-client"
 version = "0.1.0"
 dependencies = [
@@ -2055,6 +2066,7 @@ dependencies = [
 name = "stellar-tendermint-light-client"
 version = "0.1.0"
 dependencies = [
+ "ipsa-ics23",
  "soroban-sdk",
  "stellar-access",
  "stellar-macros",

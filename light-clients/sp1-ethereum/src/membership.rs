@@ -1,4 +1,4 @@
-use soroban_sdk::{Bytes, BytesN, Env};
+use soroban_sdk::{Bytes, BytesN, Env, Vec};
 
 pub const OUTPUT_LEN: u32 = 104;
 
@@ -27,12 +27,16 @@ pub fn decode(env: &Env, public_values: &Bytes) -> Output {
     }
 }
 
-pub fn kv_commitment(env: &Env, path: &Bytes, value: &Bytes) -> BytesN<32> {
+pub fn kv_commitment(env: &Env, path: &Vec<Bytes>, value: &Bytes) -> BytesN<32> {
     let mut preimage = Bytes::new(env);
 
-    preimage.extend_from_array(&1_u32.to_be_bytes());
     preimage.extend_from_array(&path.len().to_be_bytes());
-    preimage.append(path);
+
+    for segment in path.iter() {
+        preimage.extend_from_array(&segment.len().to_be_bytes());
+        preimage.append(&segment);
+    }
+
     preimage.extend_from_array(&value.len().to_be_bytes());
     preimage.append(value);
 

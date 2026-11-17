@@ -40,7 +40,7 @@ A header that fails verification panics with a distinct `Error` so a caller, a t
 
 ## Proofs
 
-`verify_membership` and `verify_non_membership` walk a two-level ICS-23 proof (the IAVL store, then the Tendermint multistore) against the root stored for the height, and refuse when the height has no consensus state or the client is frozen. Each level is checked against its proof spec, as ibc-go's `iavl_spec` and `tendermint_spec` define them: leaf and inner hash ops, the leaf prefix, inner prefix and suffix lengths, and the IAVL height, size and version encoding. A non-membership proof must give neighbours that are adjacent in the tree: a left and right pair that meet at one inner node, or a lone left neighbour that is the rightmost leaf, or a lone right neighbour that is the leftmost. The tests check every case against the `ics23` crate.
+`verify_membership` and `verify_non_membership` take the proof and the path as a list of keys, one per proof level, and check them against the root stored for the height with the [`ipsa-ics23`](../../ics23) crate. They refuse when the height has no consensus state or the client is frozen. The crate's README lists the proof specs it enforces and the path layout it expects. `proof_levels` returns 2, the number of keys the router must pass, so the router refuses a counterparty prefix of any other length when it is registered.
 
 ## Wire shapes
 
@@ -85,7 +85,7 @@ struct Misbehaviour { header_a: TendermintHeader, header_b: TendermintHeader }
 
 ## Entrypoints
 
-`initialise`, `latest_height`, `client_state`, `consensus_state`, `verify_client_message`, `check_for_misbehaviour`, `update_state`, `update_state_on_misbehaviour`, `frozen`, `verify_membership`, `verify_non_membership`, `get_timestamp_at_height`.
+`initialise`, `latest_height`, `client_state`, `consensus_state`, `verify_client_message`, `check_for_misbehaviour`, `update_state`, `update_state_on_misbehaviour`, `frozen`, `verify_membership`, `verify_non_membership`, `proof_levels`, `get_timestamp_at_height`.
 
 `check_for_misbehaviour` reports a verified header whose root differs from the one already stored for its height.
 
@@ -107,7 +107,7 @@ relayer --(UpdateClient, RecvPacket, ...)--> gateway --(Soroban invoke)--> IbcRo
                                                                               v
                                                               TendermintLightClient (this crate)
                                                               update_state: commit signatures
-                                                              verify_membership: ICS-23 walk
+                                                              verify_membership: ipsa-ics23
 ```
 
 ## When to use it

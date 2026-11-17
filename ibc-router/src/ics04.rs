@@ -6,7 +6,10 @@ use crate::{
     errors::Error,
     events::{AckPacket, RecvPacket, SendPacket, TimeoutPacket, WriteAck},
     ics02::Ics02,
-    ics24::{commit_v2_acknowledgement, commit_v2_packet, error_ack_hash},
+    ics24::{
+        ack_commitment_path, commit_v2_acknowledgement, commit_v2_packet, error_ack_hash,
+        packet_commitment_path, packet_receipt_path,
+    },
     port::{self, Port},
     smt, storage,
     types::{
@@ -357,7 +360,7 @@ fn verify_membership(
     client_id: &String,
     proof_height: u64,
     proof: &Bytes,
-    path: &Bytes,
+    path: &Vec<Bytes>,
     value: &Bytes,
 ) {
     let light_client_address = active_light_client(env, client_id);
@@ -383,7 +386,7 @@ fn verify_non_membership(
     client_id: &String,
     proof_height: u64,
     proof: &Bytes,
-    path: &Bytes,
+    path: &Vec<Bytes>,
 ) {
     let light_client_address = active_light_client(env, client_id);
     let ok: bool = env.invoke_contract(
@@ -407,8 +410,12 @@ fn counterparty_packet_commitment_path(
     prefix: &Vec<Bytes>,
     source_client_id: &String,
     sequence: u64,
-) -> Bytes {
-    counterparty_v2_path(env, prefix, source_client_id, 0x01, sequence)
+) -> Vec<Bytes> {
+    merkle_path(
+        env,
+        prefix,
+        &packet_commitment_path(env, source_client_id, sequence),
+    )
 }
 
 fn counterparty_packet_receipt_path(
@@ -416,8 +423,12 @@ fn counterparty_packet_receipt_path(
     prefix: &Vec<Bytes>,
     dest_client_id: &String,
     sequence: u64,
-) -> Bytes {
-    counterparty_v2_path(env, prefix, dest_client_id, 0x02, sequence)
+) -> Vec<Bytes> {
+    merkle_path(
+        env,
+        prefix,
+        &packet_receipt_path(env, dest_client_id, sequence),
+    )
 }
 
 fn counterparty_ack_commitment_path(
@@ -425,26 +436,24 @@ fn counterparty_ack_commitment_path(
     prefix: &Vec<Bytes>,
     dest_client_id: &String,
     sequence: u64,
-) -> Bytes {
-    counterparty_v2_path(env, prefix, dest_client_id, 0x03, sequence)
+) -> Vec<Bytes> {
+    merkle_path(
+        env,
+        prefix,
+        &ack_commitment_path(env, dest_client_id, sequence),
+    )
 }
 
-fn counterparty_v2_path(
-    env: &Env,
-    prefix: &Vec<Bytes>,
-    client_id: &String,
-    discriminator: u8,
-    sequence: u64,
-) -> Bytes {
-    let mut out = Bytes::new(env);
-    for chunk in prefix.iter() {
-        out.append(&chunk);
-    }
-    let id_len = client_id.len() as usize;
-    let mut buf = [0u8; 128];
-    client_id.copy_into_slice(&mut buf[..id_len]);
-    buf[id_len] = discriminator;
-    buf[id_len + 1..id_len + 9].copy_from_slice(&sequence.to_be_bytes());
-    out.append(&Bytes::from_slice(env, &buf[..id_len + 9]));
-    out
+fn merkle_path(env: &Env, prefix: &Vec<Bytes>, key: &Bytes) -> Vec<Bytes> {
+    let Some(last) = prefix.len().checked_sub(1) else {
+        panic_with_error!(env, Error::InvalidCommitmentPrefix);
+    };
+
+    let mut path = prefix.clone();
+
+    let mut tail = path.get(last).unwrap();
+    tail.append(key);
+    path.set(last, tail);
+
+    path
 }

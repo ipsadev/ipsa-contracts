@@ -13,6 +13,7 @@ doctest = false
 soroban-sdk = { workspace = true }
 stellar-access = { workspace = true }
 stellar-macros = { workspace = true }
+ipsa-ics23 = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

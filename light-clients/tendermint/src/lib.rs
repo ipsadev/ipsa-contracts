@@ -3,12 +3,11 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error,
     xdr::{FromXdr, ToXdr},
-    Address, Bytes, BytesN, Env, Map, String, Symbol, Val,
+    Address, Bytes, BytesN, Env, Map, String, Symbol, Val, Vec,
 };
 use stellar_access::access_control::set_admin;
 use stellar_macros::only_admin;
 
-mod ics23;
 mod tmproto;
 pub mod verify;
 
@@ -277,7 +276,7 @@ impl TendermintLightClient {
         client_id: String,
         height: u64,
         proof: Bytes,
-        path: Bytes,
+        path: Vec<Bytes>,
         value: Bytes,
     ) -> bool {
         let consensus = match env
@@ -296,7 +295,7 @@ impl TendermintLightClient {
 
         let root = consensus.root.to_array();
 
-        ics23::verify_membership(&env, &root, &proof, &path, &value)
+        ipsa_ics23::verify_membership(&env, &root, &proof, &path, &value)
     }
 
     pub fn verify_non_membership(
@@ -304,7 +303,7 @@ impl TendermintLightClient {
         client_id: String,
         height: u64,
         proof: Bytes,
-        path: Bytes,
+        path: Vec<Bytes>,
     ) -> bool {
         let consensus = match env
             .storage()
@@ -322,7 +321,11 @@ impl TendermintLightClient {
 
         let root = consensus.root.to_array();
 
-        ics23::verify_non_membership(&env, &root, &proof, &path)
+        ipsa_ics23::verify_non_membership(&env, &root, &proof, &path)
+    }
+
+    pub fn proof_levels(_env: Env) -> u32 {
+        ipsa_ics23::PROOF_LEVELS
     }
 
     pub fn get_timestamp_at_height(env: Env, client_id: String, height: u64) -> u64 {

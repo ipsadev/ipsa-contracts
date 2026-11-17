@@ -86,6 +86,14 @@ pub struct CounterpartyRegistered {
 
 #[contractevent]
 #[derive(Clone)]
+pub struct CounterpartyPrefixMigrated {
+    #[topic]
+    pub client_id: String,
+    pub commitment_prefix: Vec<Bytes>,
+}
+
+#[contractevent]
+#[derive(Clone)]
 pub struct ClientUpdated {
     #[topic]
     pub client_id: String,
