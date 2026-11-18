@@ -11,6 +11,8 @@ use stellar_macros::only_admin;
 mod tmproto;
 pub mod verify;
 
+const MAX_INDEXED_HEIGHTS: u32 = 1000;
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -43,6 +45,7 @@ pub enum Error {
     SubstituteExpired = 26,
     SubstituteParamsMismatch = 27,
     TrustingPeriodNotBelowUnbonding = 28,
+    NotMisbehaviour = 29,
 }
 
 fn header_error(reject: verify::Reject) -> Error {
@@ -222,7 +225,10 @@ impl TendermintLightClient {
         }
 
         if let Some(misbehaviour) = decode_misbehaviour(&env, &client_message) {
-            return conflicting_headers(&env, &client_id, &misbehaviour);
+            if conflicting_headers(&env, &client_id, &misbehaviour) {
+                return true;
+            }
+            panic_with_error!(&env, Error::NotMisbehaviour);
         }
 
         let check = verify_and_extract(&env, &client_id, &client_message);
@@ -463,8 +469,8 @@ fn decode_misbehaviour(env: &Env, bytes: &Bytes) -> Option<Misbehaviour> {
 }
 
 fn conflicting_headers(env: &Env, client_id: &String, misbehaviour: &Misbehaviour) -> bool {
-    let check_a = verify_header_struct(env, client_id, &misbehaviour.header_a);
-    let check_b = verify_header_struct(env, client_id, &misbehaviour.header_b);
+    let check_a = verify_header_struct(env, client_id, &misbehaviour.header_a, false);
+    let check_b = verify_header_struct(env, client_id, &misbehaviour.header_b, false);
 
     if check_a.height == check_b.height {
         let hash_a = verify::block_hash(env, &misbehaviour.header_a.signed_header_bytes)
@@ -476,9 +482,9 @@ fn conflicting_headers(env: &Env, client_id: &String, misbehaviour: &Misbehaviou
     }
 
     if check_a.height > check_b.height {
-        check_a.timestamp <= check_b.timestamp
+        check_a.timestamp < check_b.timestamp
     } else {
-        check_b.timestamp <= check_a.timestamp
+        check_b.timestamp < check_a.timestamp
     }
 }
 
@@ -486,13 +492,13 @@ fn breaks_time_monotonicity(env: &Env, client_id: &String, height: u64, timestam
     let (previous, next) = neighbour_timestamps(env, client_id, height);
 
     if let Some(previous) = previous {
-        if timestamp <= previous {
+        if timestamp < previous {
             return true;
         }
     }
 
     if let Some(next) = next {
-        if timestamp >= next {
+        if timestamp > next {
             return true;
         }
     }
@@ -544,6 +550,11 @@ fn record_height(env: &Env, client_id: &String, height: u64) {
     }
 
     heights.insert(index, height);
+
+    while heights.len() > MAX_INDEXED_HEIGHTS {
+        heights.remove(0);
+    }
+
     env.storage()
         .persistent()
         .set(&DataKey::Heights(client_id.clone()), &heights);
@@ -585,13 +596,14 @@ fn verify_and_extract(
 ) -> verify::HeaderCheck {
     let header = decode_header(env, client_message);
 
-    verify_header_struct(env, client_id, &header)
+    verify_header_struct(env, client_id, &header, true)
 }
 
 fn verify_header_struct(
     env: &Env,
     client_id: &String,
     header: &TendermintHeader,
+    enforce_update_time: bool,
 ) -> verify::HeaderCheck {
     let cs = load_client_state(env, client_id);
     if cs.is_frozen {
@@ -642,12 +654,14 @@ fn verify_header_struct(
         panic_with_error!(env, Error::TrustingPeriodElapsed);
     }
 
-    if check.timestamp <= trusted.timestamp_secs {
-        panic_with_error!(env, Error::HeaderTimeNotAfterTrusted);
-    }
+    if enforce_update_time {
+        if check.timestamp <= trusted.timestamp_secs {
+            panic_with_error!(env, Error::HeaderTimeNotAfterTrusted);
+        }
 
-    if check.timestamp >= now.saturating_add(cs.max_clock_drift_secs) {
-        panic_with_error!(env, Error::HeaderTimeInFuture);
+        if check.timestamp >= now.saturating_add(cs.max_clock_drift_secs) {
+            panic_with_error!(env, Error::HeaderTimeInFuture);
+        }
     }
 
     check

@@ -6,7 +6,7 @@ use soroban_sdk::{
 };
 use stellar_ibc_router::{IbcRouter, IbcRouterClient};
 use stellar_tendermint_light_client::{
-    Height, Misbehaviour, TendermintClientState, TendermintConsensusState, TendermintHeader,
+    Error, Height, Misbehaviour, TendermintClientState, TendermintConsensusState, TendermintHeader,
     TendermintLightClient, TendermintLightClientClient, TrustThreshold,
 };
 use tendermint_testgen::{Generator, Validator as TgValidator};
@@ -205,15 +205,18 @@ fn two_conflicting_headers_at_one_height_freeze_the_client() {
 }
 
 #[test]
-fn two_identical_headers_are_not_misbehaviour() {
+fn two_identical_headers_are_rejected_as_not_misbehaviour() {
     let fx = setup();
 
     let message = misbehaviour_message(&fx.env, (10, 10, &[0xaa; 32]), (10, 10, &[0xaa; 32]));
 
-    assert!(
-        !fx.client.check_for_misbehaviour(&fx.client_id, &message),
+    assert_eq!(
+        fx.client
+            .try_check_for_misbehaviour(&fx.client_id, &message),
+        Err(Ok(Error::NotMisbehaviour.into())),
         "the same header submitted twice shares a block hash and is not a fork"
     );
+    assert!(!fx.client.frozen(&fx.client_id));
 }
 
 #[test]
@@ -229,14 +232,47 @@ fn two_headers_whose_times_run_backwards_freeze_the_client() {
 }
 
 #[test]
-fn two_headers_in_increasing_time_order_are_not_misbehaviour() {
+fn two_headers_in_increasing_time_order_are_rejected_as_not_misbehaviour() {
     let fx = setup();
 
     let message = misbehaviour_message(&fx.env, (15, 20, &[0xaa; 32]), (12, 12, &[0xbb; 32]));
 
-    assert!(
-        !fx.client.check_for_misbehaviour(&fx.client_id, &message),
+    assert_eq!(
+        fx.client
+            .try_check_for_misbehaviour(&fx.client_id, &message),
+        Err(Ok(Error::NotMisbehaviour.into())),
         "a higher header with a later time respects monotonic time"
+    );
+    assert!(!fx.client.frozen(&fx.client_id));
+}
+
+#[test]
+fn two_honest_headers_in_the_same_second_do_not_freeze_the_client() {
+    let fx = setup();
+
+    let message = misbehaviour_message(&fx.env, (11, 50, &[0xaa; 32]), (10, 50, &[0xbb; 32]));
+
+    assert_eq!(
+        fx.client
+            .try_check_for_misbehaviour(&fx.client_id, &message),
+        Err(Ok(Error::NotMisbehaviour.into())),
+        "consecutive honest headers sharing a second are not a time violation"
+    );
+    assert!(
+        !fx.client.frozen(&fx.client_id),
+        "same-second headers must not be a permissionless griefing freeze"
+    );
+}
+
+#[test]
+fn misbehaviour_evidence_timed_at_or_before_the_trusted_state_still_freezes() {
+    let fx = setup();
+
+    let message = misbehaviour_message(&fx.env, (11, 3, &[0xaa; 32]), (10, 8, &[0xbb; 32]));
+
+    assert!(
+        fx.client.check_for_misbehaviour(&fx.client_id, &message),
+        "evidence headers skip the update-only time rules, so a time below the trusted state freezes rather than reverting"
     );
 }
 
@@ -279,6 +315,20 @@ fn a_header_timed_between_its_neighbours_is_not_misbehaviour() {
     assert!(
         !fx.client.check_for_misbehaviour(&fx.client_id, &message),
         "a header whose time sits between its neighbours is honest"
+    );
+}
+
+#[test]
+fn a_header_sharing_a_second_with_a_neighbour_is_not_misbehaviour() {
+    let fx = setup();
+
+    apply_update(&fx, 20, 20);
+
+    let message = header_message(&fx.env, 15, 20, &[0u8; 32]);
+
+    assert!(
+        !fx.client.check_for_misbehaviour(&fx.client_id, &message),
+        "a header sharing a whole second with its neighbour is not a time violation at second resolution"
     );
 }
 
