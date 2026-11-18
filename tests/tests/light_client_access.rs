@@ -251,6 +251,8 @@ fn recovery_through_the_router_refuses_a_cross_chain_substitute() {
     let (subject_id, subject) = create(&net);
     let (substitute_id, _substitute) = create_on(&net, "other-1", 20);
 
+    subject.update_state_on_misbehaviour(&subject_id, &Bytes::new(&net.env));
+
     assert!(net
         .router
         .try_recover_client(&subject_id, &substitute_id)
@@ -265,7 +267,6 @@ fn recovery_refuses_a_substitute_on_another_light_client() {
 
     let (subject_id, _subject) = create(&net);
 
-    // a second light client, registered under its own client type
     let other_lc = deploy_light_client(&net.env, &net.router_address);
     let other_type = String::from_str(&net.env, "07-tendermint-b");
     net.router.register_client_type(&other_type, &other_lc);

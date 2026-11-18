@@ -38,6 +38,9 @@ pub enum Error {
     TrustLevelNotMet = 21,
     TargetHeightMismatch = 22,
     HeaderNotVerified = 23,
+    SubjectStillActive = 24,
+    SubstituteNotNewer = 25,
+    SubstituteExpired = 26,
 }
 
 fn header_error(reject: verify::Reject) -> Error {
@@ -286,12 +289,31 @@ impl TendermintLightClient {
             panic_with_error!(&env, Error::ChainIdMismatch);
         }
 
+        let subject_consensus = load_consensus_state(
+            &env,
+            &subject_client_id,
+            subject.latest_height.revision_height,
+        );
+
+        if !subject.is_frozen && !is_expired(&env, &subject, &subject_consensus) {
+            panic_with_error!(&env, Error::SubjectStillActive);
+        }
+
+        let height = substitute.latest_height.revision_height;
+
+        if height <= subject.latest_height.revision_height {
+            panic_with_error!(&env, Error::SubstituteNotNewer);
+        }
+
+        let cons = load_consensus_state(&env, &substitute_client_id, height);
+
         if substitute.is_frozen {
             panic_with_error!(&env, Error::ClientFrozen);
         }
 
-        let height = substitute.latest_height.revision_height;
-        let cons = load_consensus_state(&env, &substitute_client_id, height);
+        if is_expired(&env, &substitute, &cons) {
+            panic_with_error!(&env, Error::SubstituteExpired);
+        }
 
         env.storage().persistent().set(
             &DataKey::Consensus(subject_client_id.clone(), height),
@@ -392,6 +414,13 @@ impl TendermintLightClient {
             .map(|c| c.timestamp_secs)
             .unwrap_or(0)
     }
+}
+
+fn is_expired(env: &Env, cs: &TendermintClientState, consensus: &TendermintConsensusState) -> bool {
+    env.ledger().timestamp()
+        >= consensus
+            .timestamp_secs
+            .saturating_add(cs.trusting_period_secs)
 }
 
 fn record_verified(env: &Env, client_id: &String, client_message: &Bytes) {

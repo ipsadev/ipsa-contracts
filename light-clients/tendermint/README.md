@@ -30,7 +30,14 @@ So a header is verified exactly once per update, and `update_state` cannot be ma
 
 ### Recovery
 
-`recover(subject_client_id, substitute_client_id)` heals a client that can no longer be updated, one frozen by misbehaviour or expired past its trusting period, from a healthy substitute of the same chain. It is how ibc-go's governance client recovery works, narrowed to a same-chain substitute. The substitute must be another client on this same contract: `recover` reads both from its own storage. It refuses a substitute on another chain with `ChainIdMismatch`, and a frozen substitute with `ClientFrozen`, since a frozen client heals nothing. Otherwise it copies the substitute's consensus state at its latest height onto the subject, sets the subject's latest height and trusting period to the substitute's, zeroes the frozen height, and clears the frozen flag. The subject keeps its own trust level, unbonding period, clock drift and proof specs. The subject can be updated again from the substitute's height, with a fresh consensus state inside the trusting period. `recover` is `#[only_admin]`, so only the router reaches it, through `recover_client`.
+`recover(subject_client_id, substitute_client_id)` heals a client that can no longer be updated, one frozen by misbehaviour or expired past its trusting period, from a healthy substitute of the same chain. It is how ibc-go's governance client recovery works, narrowed to a same-chain substitute. The substitute must be another client on this same contract: `recover` reads both from its own storage. It enforces the same conditions ibc-go's `RecoverClient` does, so recovery cannot copy stale state or heal a client that was never stuck:
+
+- the subject must be beyond an ordinary update, frozen or expired past its trusting period, otherwise `SubjectStillActive`. A client that can still be updated has no need of recovery.
+- the substitute must be strictly higher than the subject, otherwise `SubstituteNotNewer`. A substitute no newer than the subject heals nothing.
+- the substitute must itself be live: not frozen, otherwise `ClientFrozen`, and not expired past its trusting period, otherwise `SubstituteExpired`. A frozen or expired substitute would copy stale state.
+- both must be the same chain, otherwise `ChainIdMismatch`.
+
+Expiry is measured the same way an update measures it: the client's latest consensus timestamp plus its trusting period, against the ledger time. When every condition holds, `recover` copies the substitute's consensus state at its latest height onto the subject, sets the subject's latest height and trusting period to the substitute's, zeroes the frozen height, and clears the frozen flag. The subject keeps its own trust level, unbonding period, clock drift and proof specs. The subject can be updated again from the substitute's height, with a fresh consensus state inside the trusting period. `recover` is `#[only_admin]`, so only the router reaches it, through `recover_client`.
 
 ## Rejection reasons
 
