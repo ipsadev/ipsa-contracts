@@ -1,6 +1,6 @@
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    xdr::ToXdr,
+    xdr::{FromXdr, ToXdr},
     Address, Bytes, BytesN, Env, String,
 };
 use stellar_tendermint_light_client::{
@@ -9,29 +9,64 @@ use stellar_tendermint_light_client::{
 };
 
 const TRUSTING_PERIOD_SECS: u64 = 1_000_000;
+const UNBONDING_PERIOD_SECS: u64 = 2 * TRUSTING_PERIOD_SECS;
+const CLOCK_DRIFT_SECS: u64 = 10;
+
 const SUBJECT_TIMESTAMP: u64 = 1;
 const SUBSTITUTE_TIMESTAMP: u64 = 500;
 
-fn client_state(env: &Env, chain_id: &str, height: u64) -> Bytes {
+#[derive(Clone)]
+struct Params {
+    chain: &'static str,
+    height: u64,
+    trust: (u32, u32),
+    trusting: u64,
+    unbonding: u64,
+    clock_drift: u64,
+    proof_specs: &'static [u8],
+}
+
+impl Params {
+    fn subject() -> Self {
+        Params {
+            chain: "simd-1",
+            height: 10,
+            trust: (1, 3),
+            trusting: TRUSTING_PERIOD_SECS,
+            unbonding: UNBONDING_PERIOD_SECS,
+            clock_drift: CLOCK_DRIFT_SECS,
+            proof_specs: &[],
+        }
+    }
+
+    fn substitute() -> Self {
+        Params {
+            height: 20,
+            ..Params::subject()
+        }
+    }
+}
+
+fn client_state(env: &Env, p: &Params) -> Bytes {
     TendermintClientState {
-        chain_id: String::from_str(env, chain_id),
+        chain_id: String::from_str(env, p.chain),
         trust_level: TrustThreshold {
-            numerator: 1,
-            denominator: 3,
+            numerator: p.trust.0,
+            denominator: p.trust.1,
         },
-        trusting_period_secs: TRUSTING_PERIOD_SECS,
-        unbonding_period_secs: 2 * TRUSTING_PERIOD_SECS,
-        max_clock_drift_secs: 10,
+        trusting_period_secs: p.trusting,
+        unbonding_period_secs: p.unbonding,
+        max_clock_drift_secs: p.clock_drift,
         latest_height: Height {
             revision_number: 0,
-            revision_height: height,
+            revision_height: p.height,
         },
         is_frozen: false,
         frozen_height: Height {
             revision_number: 0,
             revision_height: 0,
         },
-        proof_specs: Bytes::new(env),
+        proof_specs: Bytes::from_slice(env, p.proof_specs),
     }
     .to_xdr(env)
 }
@@ -52,16 +87,7 @@ struct Fixture {
     substitute: String,
 }
 
-fn setup(subject_chain: &str, substitute_chain: &str) -> Fixture {
-    setup_heights(subject_chain, substitute_chain, 10, 20)
-}
-
-fn setup_heights(
-    subject_chain: &str,
-    substitute_chain: &str,
-    subject_height: u64,
-    substitute_height: u64,
-) -> Fixture {
+fn init_pair(subject: Params, substitute: Params) -> Fixture {
     let env = Env::default();
     let router = Address::generate(&env);
     let address = env.register(TendermintLightClient, (router,));
@@ -70,28 +96,32 @@ fn setup_heights(
 
     let client = TendermintLightClientClient::new(&env, &address);
 
-    let subject = String::from_str(&env, "07-tendermint-0");
+    let subject_id = String::from_str(&env, "07-tendermint-0");
     client.initialise(
-        &subject,
-        &client_state(&env, subject_chain, subject_height),
+        &subject_id,
+        &client_state(&env, &subject),
         &consensus_state(&env, SUBJECT_TIMESTAMP, 0xaa),
-        &subject_height,
+        &subject.height,
     );
 
-    let substitute = String::from_str(&env, "07-tendermint-1");
+    let substitute_id = String::from_str(&env, "07-tendermint-1");
     client.initialise(
-        &substitute,
-        &client_state(&env, substitute_chain, substitute_height),
+        &substitute_id,
+        &client_state(&env, &substitute),
         &consensus_state(&env, SUBSTITUTE_TIMESTAMP, 0xbb),
-        &substitute_height,
+        &substitute.height,
     );
 
     Fixture {
         env,
         client,
-        subject,
-        substitute,
+        subject: subject_id,
+        substitute: substitute_id,
     }
+}
+
+fn setup() -> Fixture {
+    init_pair(Params::subject(), Params::substitute())
 }
 
 fn freeze(fx: &Fixture, client_id: &String) {
@@ -99,9 +129,13 @@ fn freeze(fx: &Fixture, client_id: &String) {
         .update_state_on_misbehaviour(client_id, &Bytes::new(&fx.env));
 }
 
+fn decode(fx: &Fixture, client_id: &String) -> TendermintClientState {
+    TendermintClientState::from_xdr(&fx.env, &fx.client.client_state(client_id)).unwrap()
+}
+
 #[test]
 fn a_frozen_client_is_recovered_from_a_substitute() {
-    let fx = setup("simd-1", "simd-1");
+    let fx = setup();
 
     freeze(&fx, &fx.subject);
     assert!(fx.client.frozen(&fx.subject));
@@ -119,7 +153,8 @@ fn a_frozen_client_is_recovered_from_a_substitute() {
 
 #[test]
 fn an_expired_client_is_recovered_from_a_substitute() {
-    let fx = setup("simd-1", "simd-1");
+    let fx = setup();
+
     fx.env
         .ledger()
         .set_timestamp(SUBJECT_TIMESTAMP + TRUSTING_PERIOD_SECS);
@@ -135,8 +170,26 @@ fn an_expired_client_is_recovered_from_a_substitute() {
 }
 
 #[test]
+fn recovery_adopts_the_substitutes_trusting_period() {
+    let substitute = Params {
+        trusting: TRUSTING_PERIOD_SECS / 2,
+        ..Params::substitute()
+    };
+    let fx = init_pair(Params::subject(), substitute);
+
+    freeze(&fx, &fx.subject);
+    fx.client.recover(&fx.subject, &fx.substitute);
+
+    assert_eq!(
+        decode(&fx, &fx.subject).trusting_period_secs,
+        TRUSTING_PERIOD_SECS / 2,
+        "the subject takes the substitute's trusting period"
+    );
+}
+
+#[test]
 fn recovery_refuses_an_active_subject() {
-    let fx = setup("simd-1", "simd-1");
+    let fx = setup();
 
     assert_eq!(
         fx.client.try_recover(&fx.subject, &fx.substitute),
@@ -148,7 +201,11 @@ fn recovery_refuses_an_active_subject() {
 
 #[test]
 fn recovery_refuses_a_substitute_that_is_not_newer() {
-    let fx = setup_heights("simd-1", "simd-1", 10, 10);
+    let substitute = Params {
+        height: 10,
+        ..Params::substitute()
+    };
+    let fx = init_pair(Params::subject(), substitute);
 
     freeze(&fx, &fx.subject);
 
@@ -161,7 +218,11 @@ fn recovery_refuses_a_substitute_that_is_not_newer() {
 
 #[test]
 fn recovery_refuses_a_substitute_on_another_chain() {
-    let fx = setup("simd-1", "other-1");
+    let substitute = Params {
+        chain: "other-1",
+        ..Params::substitute()
+    };
+    let fx = init_pair(Params::subject(), substitute);
 
     freeze(&fx, &fx.subject);
 
@@ -178,7 +239,7 @@ fn recovery_refuses_a_substitute_on_another_chain() {
 
 #[test]
 fn recovery_refuses_a_frozen_substitute() {
-    let fx = setup("simd-1", "simd-1");
+    let fx = setup();
 
     freeze(&fx, &fx.subject);
     freeze(&fx, &fx.substitute);
@@ -191,7 +252,8 @@ fn recovery_refuses_a_frozen_substitute() {
 
 #[test]
 fn recovery_refuses_an_expired_substitute() {
-    let fx = setup("simd-1", "simd-1");
+    let fx = setup();
+
     freeze(&fx, &fx.subject);
     fx.env
         .ledger()
@@ -204,8 +266,90 @@ fn recovery_refuses_an_expired_substitute() {
 }
 
 #[test]
+fn recovery_refuses_a_substitute_with_a_different_trust_level() {
+    let substitute = Params {
+        trust: (2, 3),
+        ..Params::substitute()
+    };
+    let fx = init_pair(Params::subject(), substitute);
+
+    freeze(&fx, &fx.subject);
+
+    assert_eq!(
+        fx.client.try_recover(&fx.subject, &fx.substitute),
+        Err(Ok(Error::SubstituteParamsMismatch.into())),
+        "a substitute verified under a weaker trust level cannot stand in"
+    );
+}
+
+#[test]
+fn recovery_refuses_a_substitute_with_a_different_unbonding_period() {
+    let substitute = Params {
+        unbonding: UNBONDING_PERIOD_SECS + 1,
+        ..Params::substitute()
+    };
+    let fx = init_pair(Params::subject(), substitute);
+
+    freeze(&fx, &fx.subject);
+
+    assert_eq!(
+        fx.client.try_recover(&fx.subject, &fx.substitute),
+        Err(Ok(Error::SubstituteParamsMismatch.into()))
+    );
+}
+
+#[test]
+fn recovery_refuses_a_substitute_with_a_different_clock_drift() {
+    let substitute = Params {
+        clock_drift: CLOCK_DRIFT_SECS + 1,
+        ..Params::substitute()
+    };
+    let fx = init_pair(Params::subject(), substitute);
+
+    freeze(&fx, &fx.subject);
+
+    assert_eq!(
+        fx.client.try_recover(&fx.subject, &fx.substitute),
+        Err(Ok(Error::SubstituteParamsMismatch.into()))
+    );
+}
+
+#[test]
+fn recovery_refuses_a_substitute_with_different_proof_specs() {
+    let substitute = Params {
+        proof_specs: &[1, 2, 3],
+        ..Params::substitute()
+    };
+    let fx = init_pair(Params::subject(), substitute);
+
+    freeze(&fx, &fx.subject);
+
+    assert_eq!(
+        fx.client.try_recover(&fx.subject, &fx.substitute),
+        Err(Ok(Error::SubstituteParamsMismatch.into()))
+    );
+}
+
+#[test]
+fn recovery_refuses_a_trusting_period_not_below_the_unbonding_period() {
+    let substitute = Params {
+        trusting: UNBONDING_PERIOD_SECS,
+        ..Params::substitute()
+    };
+    let fx = init_pair(Params::subject(), substitute);
+
+    freeze(&fx, &fx.subject);
+
+    assert_eq!(
+        fx.client.try_recover(&fx.subject, &fx.substitute),
+        Err(Ok(Error::TrustingPeriodNotBelowUnbonding.into())),
+        "a trusting period at or above the unbonding period is unsafe"
+    );
+}
+
+#[test]
 fn only_the_router_can_recover() {
-    let fx = setup("simd-1", "simd-1");
+    let fx = setup();
 
     freeze(&fx, &fx.subject);
     fx.env.set_auths(&[]);

@@ -41,6 +41,8 @@ pub enum Error {
     SubjectStillActive = 24,
     SubstituteNotNewer = 25,
     SubstituteExpired = 26,
+    SubstituteParamsMismatch = 27,
+    TrustingPeriodNotBelowUnbonding = 28,
 }
 
 fn header_error(reject: verify::Reject) -> Error {
@@ -313,6 +315,19 @@ impl TendermintLightClient {
 
         if is_expired(&env, &substitute, &cons) {
             panic_with_error!(&env, Error::SubstituteExpired);
+        }
+
+        if subject.trust_level.numerator != substitute.trust_level.numerator
+            || subject.trust_level.denominator != substitute.trust_level.denominator
+            || subject.unbonding_period_secs != substitute.unbonding_period_secs
+            || subject.max_clock_drift_secs != substitute.max_clock_drift_secs
+            || subject.proof_specs != substitute.proof_specs
+        {
+            panic_with_error!(&env, Error::SubstituteParamsMismatch);
+        }
+
+        if substitute.trusting_period_secs >= subject.unbonding_period_secs {
+            panic_with_error!(&env, Error::TrustingPeriodNotBelowUnbonding);
         }
 
         env.storage().persistent().set(
