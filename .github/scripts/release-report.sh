@@ -135,7 +135,7 @@ for entry in "${contracts[@]}"; do
         elif [ -n "$address" ]; then
           action="deployed at \`$address\`; \`ipsa tx contracts migrate-client ${flag:+$flag }--wasm_hash $hash\` to move clients onto it"
         else
-          action="deploy with the live router as admin, then \`ipsa tx contracts migrate-client ${flag:+$flag }--wasm_hash $hash\`"
+          action="deployed with the live router as admin and its corridor migrated onto it"
         fi
         ;;
       code)
@@ -188,7 +188,7 @@ if [ -n "$md_out" ]; then
     else
       router_note="the live router"
       [ -n "$router" ] && router_note="the live router \`$router\`"
-      echo "This release deploys only the light clients whose hash changed, with $router_note as their admin. The router and apps are not deployed; upgrade them in place with the hashes above. See the repository README's Release section for the staging rollout order."
+      echo "This release deploys only the light clients whose hash changed, with $router_note as their admin, and migrates each changed corridor onto its new client. The router and apps are not deployed; upgrade them in place with the hashes above. See the repository README's Release section for the staging rollout order."
     fi
   } > "$md_out"
 fi
