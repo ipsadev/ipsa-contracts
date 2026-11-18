@@ -243,7 +243,12 @@ impl TendermintLightClient {
                 client_id.clone(),
                 check.height,
             )) {
-            Some(existing) => existing.root != app_hash,
+            Some(existing) => {
+                existing.root != app_hash
+                    || existing.timestamp_secs != check.timestamp
+                    || existing.next_validators_hash
+                        != BytesN::from_array(&env, &check.next_validators_hash)
+            }
             None => breaks_time_monotonicity(&env, &client_id, check.height, check.timestamp),
         }
     }

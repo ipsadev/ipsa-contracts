@@ -319,6 +319,34 @@ fn a_header_timed_between_its_neighbours_is_not_misbehaviour() {
 }
 
 #[test]
+fn a_second_block_at_a_stored_height_is_misbehaviour_even_with_the_same_app_hash() {
+    let fx = setup();
+
+    apply_update(&fx, 10, 15);
+
+    let message = header_message(&fx.env, 10, 16, &[0u8; 32]);
+
+    assert!(
+        fx.client.check_for_misbehaviour(&fx.client_id, &message),
+        "a second block at a stored height that differs in time is a double sign, even when its app hash matches"
+    );
+}
+
+#[test]
+fn resubmitting_the_stored_header_at_a_height_is_not_misbehaviour() {
+    let fx = setup();
+
+    apply_update(&fx, 10, 15);
+
+    let message = header_message(&fx.env, 10, 15, &[0u8; 32]);
+
+    assert!(
+        !fx.client.check_for_misbehaviour(&fx.client_id, &message),
+        "a header that repeats the stored consensus state is a duplicate, not misbehaviour"
+    );
+}
+
+#[test]
 fn a_header_sharing_a_second_with_a_neighbour_is_not_misbehaviour() {
     let fx = setup();
 
