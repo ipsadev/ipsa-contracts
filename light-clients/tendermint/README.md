@@ -22,6 +22,14 @@ A header without `trusted_validator_set_bytes`, the shape gateways sent before i
 
 On the Cosmos Hub testnet, with 113 validators, an update across a validator set change costs about 152M CPU instructions in the wasm, and an update with an unchanged set about 118M. The network allows 400M per transaction.
 
+### Lifecycle rules
+
+Three rules bound when an update is in time and whom it may trust. Each has a boundary that the tests pin on both sides.
+
+- Trusting period. An update is accepted only while the ledger time is strictly before the trusted consensus state's timestamp plus the client's `trusting_period_secs`; at or past that point it is refused with `TrustingPeriodElapsed`. Freshness is measured from the trusted state the header builds on, not from the header. An update one second before the boundary is accepted; at the boundary it is refused.
+- Clock drift and time order. The header's time must be strictly after the trusted state's time, otherwise `HeaderTimeNotAfterTrusted`, and strictly before the ledger time plus `max_clock_drift_secs`, otherwise `HeaderTimeInFuture`. A header ahead of the ledger is accepted up to the drift and refused at or beyond it.
+- Adjacency and trust level. An adjacent header, at the trusted height plus one, is accepted only on the unchanged-validators path, where its validator set hashes to the trusted state's next validators hash; a changed set at an adjacent height is refused with `TrustLevelNotMet`. A non-adjacent header is accepted when trusted validators holding strictly more than `trust_level` of the trusted voting power signed it, and refused with `TrustLevelNotMet` otherwise. Exactly the trust level is not enough: a third of the trusted power is refused, just over a third is accepted.
+
 ### The router's two-step update, and why the order matters
 
 The router drives an update in a single invocation: it calls `check_for_misbehaviour` first, then `update_state`. `check_for_misbehaviour` is where the header is fully verified (the checks above); when it passes it records the sha256 of the update message together with the current ledger sequence. `update_state` does not verify the header a second time. It applies a header only when that header is the one `check_for_misbehaviour` verified for this client in the same ledger: the recorded hash must match the message and the recorded ledger must be the current one. It then consumes the record. Anything else is refused with `HeaderNotVerified`.
