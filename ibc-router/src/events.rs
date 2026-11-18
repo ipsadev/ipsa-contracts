@@ -139,3 +139,11 @@ pub struct ClientMigrated {
     pub client_id: String,
     pub light_client: Address,
 }
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ClientRecovered {
+    #[topic]
+    pub client_id: String,
+    pub substitute_client_id: String,
+}

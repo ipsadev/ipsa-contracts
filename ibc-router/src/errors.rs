@@ -54,4 +54,5 @@ pub enum Error {
     PortHasPacketsInFlight = 28,
     InvalidCommitmentPrefix = 29,
     PrefixNotMigratable = 30,
+    SubstituteMismatch = 31,
 }

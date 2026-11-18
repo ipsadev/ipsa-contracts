@@ -6,8 +6,8 @@ use stellar_macros::only_owner;
 use crate::{
     errors::Error,
     events::{
-        ClientCreated, ClientFrozen, ClientMigrated, ClientTypeRegistered, ClientUpdated,
-        CounterpartyPrefixMigrated, CounterpartyRegistered,
+        ClientCreated, ClientFrozen, ClientMigrated, ClientRecovered, ClientTypeRegistered,
+        ClientUpdated, CounterpartyPrefixMigrated, CounterpartyRegistered,
     },
     identifiers::{validate_client_type, validate_counterparty_client_id},
     types::{Counterparty, DataKey},
@@ -50,6 +50,8 @@ pub trait Ics02 {
         consensus_state: Bytes,
         height: u64,
     );
+
+    fn recover_client(env: &Env, subject_client_id: String, substitute_client_id: String);
 
     fn frozen(env: &Env, client_id: String) -> bool;
 }
@@ -321,6 +323,42 @@ impl Ics02 for IbcRouter {
         ClientMigrated {
             client_id,
             light_client: light_client_address,
+        }
+        .publish(env);
+    }
+
+    #[only_owner]
+    fn recover_client(env: &Env, subject_client_id: String, substitute_client_id: String) {
+        let subject_light_client: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::LightClient(subject_client_id.clone()))
+            .unwrap_or_else(|| panic_with_error!(env, Error::ClientIdNotFound));
+
+        let substitute_light_client: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::LightClient(substitute_client_id.clone()))
+            .unwrap_or_else(|| panic_with_error!(env, Error::ClientIdNotFound));
+
+        if subject_light_client != substitute_light_client {
+            panic_with_error!(env, Error::SubstituteMismatch);
+        }
+
+        let args: Vec<Val> = soroban_sdk::vec![
+            env,
+            subject_client_id.clone().into_val(env),
+            substitute_client_id.clone().into_val(env),
+        ];
+        let _: () = env.invoke_contract(&subject_light_client, &Symbol::new(env, "recover"), args);
+
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Frozen(subject_client_id.clone()));
+
+        ClientRecovered {
+            client_id: subject_client_id,
+            substitute_client_id,
         }
         .publish(env);
     }
