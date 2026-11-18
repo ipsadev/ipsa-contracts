@@ -245,6 +245,8 @@ jobs:
           TAG: ${{ needs.wasm.outputs.tag }}
           ROUTER: ${{ vars.ROUTER_ADDRESS }}
           DEPLOY_ROUTER: ${{ inputs.deploy_router }}
+          TENDERMINT_CLIENT_ID: ${{ vars.TENDERMINT_CLIENT_ID }}
+          SEPOLIA_CLIENT_ID: ${{ vars.SEPOLIA_CLIENT_ID }}
         run: |
           set -euo pipefail
 
@@ -260,6 +262,51 @@ jobs:
           invoke() {
             local id="$1"; shift
             stellar contract invoke --id "$id" -- "$@" >/dev/null
+          }
+
+          # read-only call, printing the decoded return value without JSON quotes
+          read_call() {
+            local id="$1"; shift
+            stellar contract invoke --id "$id" --send=no -- "$@" | jq -r .
+          }
+
+          # the corridor client id a light client wasm serves
+          client_id_for() {
+            case "$1" in
+              stellar_tendermint_light_client.wasm) printf '%s' "$TENDERMINT_CLIENT_ID" ;;
+              stellar_sp1_ethereum_light_client.wasm) printf '%s' "$SEPOLIA_CLIENT_ID" ;;
+            esac
+          }
+
+          # deploy a new light client and migrate its corridor onto it, in place
+          migrate_corridor() {
+            local wasm="$1" cid="$2"
+
+            local new_lc
+            new_lc="$(stellar contract deploy --wasm "dist/$wasm" -- --router "$ROUTER")"
+            echo "::notice::deployed $wasm at $new_lc with router $ROUTER as admin"
+
+            local old_lc
+            old_lc="$(read_call "$ROUTER" light_client_address --client_id "$cid")"
+            if [ -z "$old_lc" ] || [ "$old_lc" = "null" ]; then
+              echo "::error::the router has no light client registered for $cid; cannot migrate"
+              exit 1
+            fi
+
+            local client_state height consensus_state
+            client_state="$(read_call "$old_lc" client_state --client_id "$cid")"
+            height="$(read_call "$old_lc" latest_height --client_id "$cid")"
+            consensus_state="$(read_call "$old_lc" consensus_state --client_id "$cid" --height "$height")"
+
+            invoke "$ROUTER" migrate_client \
+              --client_id "$cid" \
+              --light_client_address "$new_lc" \
+              --client_state "$client_state" \
+              --consensus_state "$consensus_state" \
+              --height "$height"
+            echo "::notice::migrated $cid from $old_lc onto $new_lc at height $height"
+
+            printf '%s\t%s\t%s\n' "$wasm" "$new_lc" "$cid" >> "$deployed"
           }
 
           if [ "$DEPLOY_ROUTER" = "true" ]; then
@@ -307,10 +354,17 @@ jobs:
             if [ -z "$changed_lcs" ]; then
               echo "::notice::no light client changed since the previous release; nothing to deploy"
             fi
+
             for wasm in $changed_lcs; do
-              id="$(stellar contract deploy --wasm "dist/$wasm" -- --router "$ROUTER")"
-              printf '%s\t%s\n' "$wasm" "$id" >> "$deployed"
-              echo "::notice::deployed $wasm at $id with router $ROUTER as admin"
+              cid="$(client_id_for "$wasm")"
+              if [ -z "$cid" ]; then
+                echo "::error::$wasm changed but its corridor client id is unset; set TENDERMINT_CLIENT_ID / SEPOLIA_CLIENT_ID on the testnet environment"
+                exit 1
+              fi
+            done
+
+            for wasm in $changed_lcs; do
+              migrate_corridor "$wasm" "$(client_id_for "$wasm")"
             done
 
             bash .github/scripts/release-report.sh \

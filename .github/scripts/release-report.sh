@@ -20,8 +20,9 @@
 #     --md out.md \
 #     --json out.json
 #
-# deployed.tsv is "<wasm filename><TAB><contract address>" per line, for the
-# light clients this release actually deployed; it is empty on a dry run.
+# deployed.tsv is "<wasm filename><TAB><contract address>[<TAB><client id>]" per
+# line, for the light clients this release actually deployed; the client id is
+# the corridor the release migrated onto the new client. It is empty on a dry run.
 
 set -euo pipefail
 
@@ -84,6 +85,12 @@ address_of() {
   awk -F'\t' -v w="$wasm" '$1 == w {print $2; exit}' "$addresses"
 }
 
+migrated_of() {
+  local wasm="$1"
+  [ -n "$addresses" ] && [ -f "$addresses" ] || return 0
+  awk -F'\t' -v w="$wasm" '$1 == w {print $3; exit}' "$addresses"
+}
+
 first_release="false"
 if [ -z "$previous" ] || [ ! -s "$previous" ]; then
   first_release="true"
@@ -100,6 +107,7 @@ for entry in "${contracts[@]}"; do
 
   prev="$(hash_of "$previous" "$wasm")"
   address="$(address_of "$wasm")"
+  migrated="$(migrated_of "$wasm")"
 
   if [ "$first_release" = "true" ] || [ -z "$prev" ] || [ "$hash" != "$prev" ]; then
     changed="true"
@@ -122,7 +130,9 @@ for entry in "${contracts[@]}"; do
         action="\`ipsa tx contracts upgrade --wasm_hash $hash\` on the live contract"
         ;;
       light-client)
-        if [ -n "$address" ]; then
+        if [ -n "$address" ] && [ -n "$migrated" ]; then
+          action="deployed at \`$address\`; corridor \`$migrated\` migrated onto it"
+        elif [ -n "$address" ]; then
           action="deployed at \`$address\`; \`ipsa tx contracts migrate-client ${flag:+$flag }--wasm_hash $hash\` to move clients onto it"
         else
           action="deploy with the live router as admin, then \`ipsa tx contracts migrate-client ${flag:+$flag }--wasm_hash $hash\`"
@@ -148,11 +158,13 @@ for entry in "${contracts[@]}"; do
     --arg previous "$prev" \
     --argjson changed "$changed" \
     --arg address "$address" \
+    --arg migrated "$migrated" \
     --arg migrate_flag "$flag" \
     '{name: $name, wasm: $wasm, category: $category, hash: $hash,
       previous: (if $previous == "" then null else $previous end),
       changed: $changed,
       address: (if $address == "" then null else $address end),
+      migrated_client_id: (if $migrated == "" then null else $migrated end),
       migrate_flag: (if $migrate_flag == "" then null else $migrate_flag end)}')
 "
 done

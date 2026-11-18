@@ -38,7 +38,7 @@ A release builds every contract to wasm, writes `SHA256SUMS`, and compares each 
 A release does not redeploy the network. A router holds the clients, counterparties, commitments and vouchers, so a fresh router is a fresh network that nothing points at. Between releases the live router is upgraded in place with `upgrade(wasm_hash)` and clients are moved onto new light client code with `migrate_client`, and the release supports that:
 
 - The router, the transfer app and the gmp app are never deployed by a release. Their wasm hash is published and compared, so an operator knows whether to run `ipsa tx contracts upgrade --wasm_hash <hash>` on the live contract.
-- A light client whose hash changed is deployed, with the live router as its admin (the router address comes from the `ROUTER_ADDRESS` variable on the `testnet` environment, not a fresh deploy). The notes give its address and the `ipsa tx contracts migrate-client [--sp1] --wasm_hash <hash>` step that moves clients onto it; `--sp1` is for the Ethereum client.
+- A light client whose hash changed is deployed, with the live router as its admin (the router address comes from the `ROUTER_ADDRESS` variable on the `testnet` environment, not a fresh deploy), and the release then migrates its corridor onto it in place: it reads the current client and consensus state from the old light client and calls the router's `migrate_client`. The corridor each client serves comes from the `TENDERMINT_CLIENT_ID` and `SEPOLIA_CLIENT_ID` variables on the `testnet` environment; a changed client with no corridor id set fails the release rather than deploying an orphan. The router owner signs the migration, so the release's signing key must own the router.
 - A light client whose hash is unchanged is not deployed.
 - A fresh full set is deployed and wired only when the workflow is run with the `deploy_router` input, which keeps the first release's full deploy.
 
@@ -48,12 +48,14 @@ A dry run (`workflow_dispatch` with `dry_run`) runs the checks, builds the wasm,
 
 ### Rollout order after a release
 
-Apply a release to staging in this order, so clients are never pointed at code the router has not accepted:
+The release already migrates each changed light client's corridor onto the new code, so the remaining steps are the in-place upgrades the release cannot do. Apply them to staging in this order:
 
 1. Upgrade the live router if its hash changed: `ipsa tx contracts upgrade --wasm_hash <router hash>`.
 2. Upgrade the transfer and gmp apps if their hashes changed, the same way.
-3. Move clients onto each changed light client: `ipsa tx contracts migrate-client [--sp1] --wasm_hash <light client hash>`.
+3. Set a new voucher or account wasm on its app if its hash changed (`set_voucher_wasm` / `set_account_wasm --wasm_hash <hash>`).
 4. Apply any counterparty prefix or client type changes last.
+
+The client migration sits with the release itself: it runs when the release deploys a changed light client, reading the corridor's current client and consensus state and re-initialising the new client from it. A release that has already published is never re-run; one that failed before publishing deploys a fresh client and migrates again from the corridor's current state, which is safe.
 
 ## Audit
 
