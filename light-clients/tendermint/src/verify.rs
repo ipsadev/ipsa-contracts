@@ -117,6 +117,12 @@ pub fn header_fields(env: &Env, signed_header: &Bytes) -> Option<HeaderCheck> {
     })
 }
 
+pub fn block_hash(env: &Env, signed_header: &Bytes) -> Option<[u8; 32]> {
+    let inner = message_field(signed_header, 1)?;
+
+    Some(header_hash(env, &inner))
+}
+
 fn trusted_validators_signed(
     env: &Env,
     signed_header: &Bytes,

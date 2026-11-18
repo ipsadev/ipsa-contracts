@@ -11,6 +11,8 @@ use stellar_macros::only_admin;
 mod tmproto;
 pub mod verify;
 
+const MAX_INDEXED_HEIGHTS: u32 = 1000;
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -43,6 +45,7 @@ pub enum Error {
     SubstituteExpired = 26,
     SubstituteParamsMismatch = 27,
     TrustingPeriodNotBelowUnbonding = 28,
+    NotMisbehaviour = 29,
 }
 
 fn header_error(reject: verify::Reject) -> Error {
@@ -141,6 +144,7 @@ pub enum DataKey {
     Consensus(String, u64),
     Frozen(String),
     Verified(String),
+    Heights(String),
 }
 
 #[contract]
@@ -186,7 +190,9 @@ impl TendermintLightClient {
             .set(&DataKey::Client(client_id.clone()), &cs);
         env.storage()
             .persistent()
-            .set(&DataKey::Consensus(client_id, height), &cons);
+            .set(&DataKey::Consensus(client_id.clone(), height), &cons);
+
+        record_height(&env, &client_id, height);
     }
 
     pub fn latest_height(env: Env, client_id: String) -> u64 {
@@ -217,6 +223,14 @@ impl TendermintLightClient {
         if load_client_state(&env, &client_id).is_frozen {
             return false;
         }
+
+        if let Some(misbehaviour) = decode_misbehaviour(&env, &client_message) {
+            if conflicting_headers(&env, &client_id, &misbehaviour) {
+                return true;
+            }
+            panic_with_error!(&env, Error::NotMisbehaviour);
+        }
+
         let check = verify_and_extract(&env, &client_id, &client_message);
         let app_hash = BytesN::from_array(&env, &check.app_hash);
 
@@ -225,10 +239,17 @@ impl TendermintLightClient {
         match env
             .storage()
             .persistent()
-            .get::<DataKey, TendermintConsensusState>(&DataKey::Consensus(client_id, check.height))
-        {
-            Some(existing) => existing.root != app_hash,
-            None => false,
+            .get::<DataKey, TendermintConsensusState>(&DataKey::Consensus(
+                client_id.clone(),
+                check.height,
+            )) {
+            Some(existing) => {
+                existing.root != app_hash
+                    || existing.timestamp_secs != check.timestamp
+                    || existing.next_validators_hash
+                        != BytesN::from_array(&env, &check.next_validators_hash)
+            }
+            None => breaks_time_monotonicity(&env, &client_id, check.height, check.timestamp),
         }
     }
 
@@ -254,6 +275,8 @@ impl TendermintLightClient {
             &DataKey::Consensus(client_id.clone(), check.height),
             &new_consensus,
         );
+
+        record_height(&env, &client_id, check.height);
 
         if check.height > cs.latest_height.revision_height {
             cs.latest_height = Height {
@@ -334,6 +357,8 @@ impl TendermintLightClient {
             &DataKey::Consensus(subject_client_id.clone(), height),
             &cons,
         );
+
+        record_height(&env, &subject_client_id, height);
 
         let recovered = TendermintClientState {
             chain_id: subject.chain_id,
@@ -438,6 +463,108 @@ fn is_expired(env: &Env, cs: &TendermintClientState, consensus: &TendermintConse
             .saturating_add(cs.trusting_period_secs)
 }
 
+fn decode_misbehaviour(env: &Env, bytes: &Bytes) -> Option<Misbehaviour> {
+    let fields = Map::<Symbol, Val>::from_xdr(env, bytes).ok()?;
+
+    if !fields.contains_key(Symbol::new(env, "header_a")) {
+        return None;
+    }
+
+    Misbehaviour::from_xdr(env, bytes).ok()
+}
+
+fn conflicting_headers(env: &Env, client_id: &String, misbehaviour: &Misbehaviour) -> bool {
+    let check_a = verify_header_struct(env, client_id, &misbehaviour.header_a, false);
+    let check_b = verify_header_struct(env, client_id, &misbehaviour.header_b, false);
+
+    if check_a.height == check_b.height {
+        let hash_a = verify::block_hash(env, &misbehaviour.header_a.signed_header_bytes)
+            .unwrap_or_else(|| panic_with_error!(env, Error::InvalidHeader));
+        let hash_b = verify::block_hash(env, &misbehaviour.header_b.signed_header_bytes)
+            .unwrap_or_else(|| panic_with_error!(env, Error::InvalidHeader));
+
+        return hash_a != hash_b;
+    }
+
+    if check_a.height > check_b.height {
+        check_a.timestamp < check_b.timestamp
+    } else {
+        check_b.timestamp < check_a.timestamp
+    }
+}
+
+fn breaks_time_monotonicity(env: &Env, client_id: &String, height: u64, timestamp: u64) -> bool {
+    let (previous, next) = neighbour_timestamps(env, client_id, height);
+
+    if let Some(previous) = previous {
+        if timestamp < previous {
+            return true;
+        }
+    }
+
+    if let Some(next) = next {
+        if timestamp > next {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn neighbour_timestamps(env: &Env, client_id: &String, height: u64) -> (Option<u64>, Option<u64>) {
+    let heights: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Heights(client_id.clone()))
+        .unwrap_or_else(|| Vec::new(env));
+
+    let mut previous_height: Option<u64> = None;
+    let mut next_height: Option<u64> = None;
+
+    for stored in heights.iter() {
+        if stored < height {
+            previous_height = Some(stored);
+        } else if stored > height {
+            next_height = Some(stored);
+            break;
+        }
+    }
+
+    let previous = previous_height.map(|h| load_consensus_state(env, client_id, h).timestamp_secs);
+    let next = next_height.map(|h| load_consensus_state(env, client_id, h).timestamp_secs);
+
+    (previous, next)
+}
+
+fn record_height(env: &Env, client_id: &String, height: u64) {
+    let mut heights: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Heights(client_id.clone()))
+        .unwrap_or_else(|| Vec::new(env));
+
+    let mut index = 0u32;
+    for stored in heights.iter() {
+        if stored == height {
+            return;
+        }
+        if stored > height {
+            break;
+        }
+        index += 1;
+    }
+
+    heights.insert(index, height);
+
+    while heights.len() > MAX_INDEXED_HEIGHTS {
+        heights.remove(0);
+    }
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::Heights(client_id.clone()), &heights);
+}
+
 fn record_verified(env: &Env, client_id: &String, client_message: &Bytes) {
     let record = VerifiedHeader {
         hash: env.crypto().sha256(client_message).to_bytes(),
@@ -473,6 +600,16 @@ fn verify_and_extract(
     client_message: &Bytes,
 ) -> verify::HeaderCheck {
     let header = decode_header(env, client_message);
+
+    verify_header_struct(env, client_id, &header, true)
+}
+
+fn verify_header_struct(
+    env: &Env,
+    client_id: &String,
+    header: &TendermintHeader,
+    enforce_update_time: bool,
+) -> verify::HeaderCheck {
     let cs = load_client_state(env, client_id);
     if cs.is_frozen {
         panic_with_error!(env, Error::ClientFrozen);
@@ -522,12 +659,14 @@ fn verify_and_extract(
         panic_with_error!(env, Error::TrustingPeriodElapsed);
     }
 
-    if check.timestamp <= trusted.timestamp_secs {
-        panic_with_error!(env, Error::HeaderTimeNotAfterTrusted);
-    }
+    if enforce_update_time {
+        if check.timestamp <= trusted.timestamp_secs {
+            panic_with_error!(env, Error::HeaderTimeNotAfterTrusted);
+        }
 
-    if check.timestamp >= now.saturating_add(cs.max_clock_drift_secs) {
-        panic_with_error!(env, Error::HeaderTimeInFuture);
+        if check.timestamp >= now.saturating_add(cs.max_clock_drift_secs) {
+            panic_with_error!(env, Error::HeaderTimeInFuture);
+        }
     }
 
     check
