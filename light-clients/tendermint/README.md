@@ -28,6 +28,18 @@ The router drives an update in a single invocation: it calls `check_for_misbehav
 
 So a header is verified exactly once per update, and `update_state` cannot be made to apply a header that was never verified, even though it is only reachable through the admin (the router). Soroban has no storage that clears at the end of a call, so the record is bound to the ledger (which closes about every five seconds) and consumed on use: a record left behind by a `check_for_misbehaviour` that no `update_state` followed stops authorising anything as soon as the next ledger closes.
 
+### Misbehaviour
+
+`check_for_misbehaviour` is where the router decides, inside `update_client`, whether a submitted message freezes the client instead of advancing it. Submission is permissionless: `update_client` is ungated, so anyone can relay evidence, and only the freeze itself (`update_state_on_misbehaviour`) is admin-only, reached by the router once detection returns true. Every header named below is fully verified first, by the same path an ordinary update uses, so an unverifiable header reverts rather than freezing anything, and a frozen client reports no further misbehaviour.
+
+It detects three forms, mirroring ibc-go's `CheckForMisbehaviour`:
+
+- a single verified header whose app hash contradicts the consensus state already stored at its height. Two different blocks were finalised at one height, which a correct chain never does.
+- a `Misbehaviour` message carrying two verified headers. Two headers at one height with different block hashes are a fork. Two headers at different heights whose timestamps run backwards, the higher header carrying a time at or before the lower one, are a violation of monotonic (BFT) time.
+- a single verified header whose timestamp breaks monotonicity with its stored neighbours: at or before the nearest stored height below it, or at or after the nearest stored height above it. Tendermint time is strictly increasing with height, so either case is evidence the chain signed inconsistent times.
+
+The last form needs the neighbours of an arbitrary height, which Soroban storage cannot range-scan, so the client keeps a sorted index of the heights it holds consensus states for, extended on `initialise`, `update_state` and `recover`. A `Misbehaviour` message is told apart from a lone header by its `header_a` field before decoding.
+
 ### Recovery
 
 `recover(subject_client_id, substitute_client_id)` heals a client that can no longer be updated, one frozen by misbehaviour or expired past its trusting period, from a healthy substitute of the same chain. It is how ibc-go's governance client recovery works, narrowed to a same-chain substitute. The substitute must be another client on this same contract: `recover` reads both from its own storage. It enforces the same conditions ibc-go's `RecoverClient` does, so recovery cannot copy stale state or heal a client that was never stuck:
