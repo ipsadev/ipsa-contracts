@@ -1283,6 +1283,72 @@ fn a_client_expires_exactly_at_the_end_of_its_trusting_period() {
     );
 }
 
+#[test]
+fn a_client_accepts_an_update_in_the_last_second_of_its_trusting_period() {
+    let env = Env::default();
+    let (sh, vals) = gen_full(5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh, 4, sh.header.chain_id.as_str(), trusted_next);
+    env.ledger().set_timestamp(TRUSTING_PERIOD_SECS);
+    let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
+
+    assert_eq!(
+        update(&client, &cid, &msg),
+        5,
+        "one second before the trusted state expires, an update is still accepted"
+    );
+}
+
+#[test]
+fn a_header_within_the_clock_drift_is_accepted() {
+    let env = Env::default();
+    let (sh, vals) = header_signed_by(&[("a", 10), ("b", 10), ("c", 10)], 5);
+    let vs_bytes = tendermint_proto::types::ValidatorSet::from(vals).encode_to_vec();
+    let trusted_next = hash32(&sh.header.validators_hash);
+
+    let (client, cid) = setup_client(&env, &sh, 4, "light-chain", trusted_next);
+    env.ledger().set_timestamp(header_secs(&sh) - 5);
+    let msg = build_update_msg(&env, &sh, &vs_bytes, 4);
+
+    assert_eq!(
+        update(&client, &cid, &msg),
+        5,
+        "a header ahead of the ledger but inside the clock drift is accepted"
+    );
+}
+
+#[test]
+fn a_non_adjacent_transition_just_over_the_trust_level_is_accepted() {
+    let env = Env::default();
+    let changed = changed_set(
+        &[("a", 11), ("b", 10), ("c", 9)],
+        &[("a", 11), ("x", 10), ("y", 10)],
+    );
+
+    let (client, cid) = setup_client(
+        &env,
+        &changed.header,
+        5,
+        changed.header.header.chain_id.as_str(),
+        changed.trusted_next,
+    );
+    let msg = skipping_msg(
+        &env,
+        &changed.header,
+        &changed.validator_set,
+        &changed.trusted_set,
+        5,
+    );
+
+    assert_eq!(
+        update(&client, &cid, &msg),
+        10,
+        "one trusted validator with just over a third of the trusted power carries a non-adjacent transition"
+    );
+}
+
 fn initialise_with_trust(numerator: u32, denominator: u32) -> Result<(), soroban_sdk::Error> {
     let env = Env::default();
     let addr = env.register(
