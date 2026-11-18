@@ -11,7 +11,12 @@ on:
         required: false
         default: ""
       dry_run:
-        description: "run the checks and build the wasm with its checksums, but publish nothing"
+        description: "run the checks, build the wasm, and print the hash table, but deploy and publish nothing"
+        type: boolean
+        required: false
+        default: false
+      deploy_router:
+        description: "deploy a fresh full set (router, transfer, gmp, both light clients) and wire them, as the first release did; off by default so a release only deploys the light clients whose wasm changed"
         type: boolean
         required: false
         default: false
@@ -100,14 +105,76 @@ jobs:
           path: dist
           if-no-files-found: error
 
+  plan:
+    name: hash table (what a release would change)
+    runs-on: ubuntu-latest
+    needs: [wasm]
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: download wasm dist
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-dist
+          path: dist
+
+      - name: fetch the previous release's checksums
+        env:
+          TAG: ${{ needs.wasm.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p prev
+          : > prev/SHA256SUMS
+          prev_tag="$(gh release list --limit 200 --json tagName,createdAt,isDraft \
+            --jq "[.[] | select(.isDraft | not) | select(.tagName != \"$TAG\")] | sort_by(.createdAt) | reverse | .[0].tagName // empty")"
+          if [ -n "$prev_tag" ] && gh release download "$prev_tag" --pattern SHA256SUMS --dir prev --clobber 2>/dev/null; then
+            echo "::notice::comparing against the previous release $prev_tag"
+          else
+            echo "::notice::no previous release; every contract counts as changed"
+          fi
+
+      - name: build the hash table
+        env:
+          TAG: ${{ needs.wasm.outputs.tag }}
+          ROUTER: ${{ vars.ROUTER_ADDRESS }}
+        run: |
+          set -euo pipefail
+          mkdir -p plan
+          bash .github/scripts/release-report.sh \
+            --current dist/SHA256SUMS \
+            --previous prev/SHA256SUMS \
+            --tag "$TAG" \
+            --network testnet \
+            --mode incremental \
+            --router "$ROUTER" \
+            --md plan/plan.md \
+            --json plan/plan.json
+          cat plan/plan.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: upload the plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan
+          path: |
+            plan/plan.md
+            plan/plan.json
+          if-no-files-found: error
+
       - name: say what a dry run skipped
         if: ${{ inputs.dry_run == true }}
-        run: echo "::notice::dry run - checks passed and the wasm was built; nothing was published"
+        run: echo "::notice::dry run - the hash table above is the plan; nothing was deployed or published"
 
   deploy:
     name: deploy to stellar testnet
     runs-on: ubuntu-latest
-    needs: [wasm]
+    needs: [wasm, plan]
     if: ${{ inputs.dry_run != true }}
     environment: testnet
     timeout-minutes: 30
@@ -116,12 +183,12 @@ jobs:
     env:
       STELLAR_NETWORK: testnet
       STELLAR_ACCOUNT: ${{ secrets.STELLAR_SIGNING_KEY }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: a release is deployed once
         id: existing
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.wasm.outputs.tag }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -131,6 +198,12 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: checkout
+        if: ${{ steps.existing.outputs.skip != 'true' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
       - name: download wasm dist
         if: ${{ steps.existing.outputs.skip != 'true' }}
         uses: actions/download-artifact@v4
@@ -138,17 +211,40 @@ jobs:
           name: wasm-dist
           path: dist
 
+      - name: download the plan
+        if: ${{ steps.existing.outputs.skip != 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: plan
+          path: plan
+
+      - name: fetch the previous release's checksums
+        if: ${{ steps.existing.outputs.skip != 'true' }}
+        env:
+          TAG: ${{ needs.wasm.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p prev
+          : > prev/SHA256SUMS
+          prev_tag="$(gh release list --limit 200 --json tagName,createdAt,isDraft \
+            --jq "[.[] | select(.isDraft | not) | select(.tagName != \"$TAG\")] | sort_by(.createdAt) | reverse | .[0].tagName // empty")"
+          if [ -n "$prev_tag" ] && gh release download "$prev_tag" --pattern SHA256SUMS --dir prev --clobber 2>/dev/null; then
+            echo "::notice::comparing against the previous release $prev_tag"
+          fi
+
       - name: install stellar cli
         if: ${{ steps.existing.outputs.skip != 'true' }}
         uses: stellar/stellar-cli@v27.0.0
         with:
           version: '27.0.0'
 
-      - name: deploy and wire the contracts
+      - name: deploy the changed light clients, or a full set
         id: deploy
         if: ${{ steps.existing.outputs.skip != 'true' }}
         env:
           TAG: ${{ needs.wasm.outputs.tag }}
+          ROUTER: ${{ vars.ROUTER_ADDRESS }}
+          DEPLOY_ROUTER: ${{ inputs.deploy_router }}
         run: |
           set -euo pipefail
 
@@ -157,89 +253,72 @@ jobs:
             exit 1
           fi
 
-          owner="$(stellar keys address "$STELLAR_ACCOUNT")"
-          genesis="$(stellar ledger latest --output json | jq -r .sequence)"
-
           mkdir -p deployment
-          records=deployment/records.tsv
-          : > "$records"
-
-          record() {
-            printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$records"
-            echo "$1: $3" >&2
-          }
-
-          deploy() {
-            local name="$1" wasm="$2"
-            shift 2
-
-            local id
-            if [ "$#" -eq 0 ]; then
-              id="$(stellar contract deploy --wasm "dist/$wasm")"
-            else
-              id="$(stellar contract deploy --wasm "dist/$wasm" -- "$@")"
-            fi
-
-            record "$name" "contract" "$id"
-            printf '%s' "$id"
-          }
-
-          upload() {
-            local name="$1" wasm="$2"
-
-            local hash
-            hash="$(stellar contract upload --wasm "dist/$wasm")"
-
-            record "$name" "wasm hash" "$hash"
-            printf '%s' "$hash"
-          }
+          deployed=deployment/deployed.tsv
+          : > "$deployed"
 
           invoke() {
-            local id="$1"
-            shift
-
+            local id="$1"; shift
             stellar contract invoke --id "$id" -- "$@" >/dev/null
           }
 
-          record "owner" "account" "$owner"
-          record "router genesis ledger" "ledger" "$genesis"
+          if [ "$DEPLOY_ROUTER" = "true" ]; then
+            owner="$(stellar keys address "$STELLAR_ACCOUNT")"
 
-          router="$(deploy "ibc-router" stellar_ibc_router.wasm --owner "$owner")"
-          transfer="$(deploy "ibc-transfer" stellar_ibc_transfer.wasm --router "$router" --owner "$owner")"
-          gmp="$(deploy "ibc-gmp" stellar_ibc_gmp.wasm --owner "$owner" --router "$router")"
-          tendermint="$(deploy "tendermint light client" stellar_tendermint_light_client.wasm --router "$router")"
-          ethereum="$(deploy "sp1-ethereum light client" stellar_sp1_ethereum_light_client.wasm --router "$router")"
+            router="$(stellar contract deploy --wasm dist/stellar_ibc_router.wasm -- --owner "$owner")"
+            transfer="$(stellar contract deploy --wasm dist/stellar_ibc_transfer.wasm -- --router "$router" --owner "$owner")"
+            gmp="$(stellar contract deploy --wasm dist/stellar_ibc_gmp.wasm -- --owner "$owner" --router "$router")"
+            tendermint="$(stellar contract deploy --wasm dist/stellar_tendermint_light_client.wasm -- --router "$router")"
+            ethereum="$(stellar contract deploy --wasm dist/stellar_sp1_ethereum_light_client.wasm -- --router "$router")"
 
-          voucher_hash="$(upload "ibc-voucher-token" stellar_ibc_voucher_token.wasm)"
-          account_hash="$(upload "gmp-account" ipsa_gmp_account.wasm)"
+            voucher_hash="$(stellar contract upload --wasm dist/stellar_ibc_voucher_token.wasm)"
+            account_hash="$(stellar contract upload --wasm dist/ipsa_gmp_account.wasm)"
 
-          invoke "$router" register_client_type --client_type 07-tendermint --light_client_address "$tendermint"
-          invoke "$router" register_client_type --client_type sepolia --light_client_address "$ethereum"
-          invoke "$router" register_port --port_id transfer --app_address "$transfer"
-          invoke "$router" register_port --port_id gmpport --app_address "$gmp"
-          invoke "$transfer" set_voucher_wasm --wasm_hash "$voucher_hash"
-          invoke "$gmp" set_account_wasm --wasm_hash "$account_hash"
+            invoke "$router" register_client_type --client_type 07-tendermint --light_client_address "$tendermint"
+            invoke "$router" register_client_type --client_type sepolia --light_client_address "$ethereum"
+            invoke "$router" register_port --port_id transfer --app_address "$transfer"
+            invoke "$router" register_port --port_id gmpport --app_address "$gmp"
+            invoke "$transfer" set_voucher_wasm --wasm_hash "$voucher_hash"
+            invoke "$gmp" set_account_wasm --wasm_hash "$account_hash"
 
-          native="$(stellar contract id asset --asset native)"
-          record "XLM" "asset contract" "$native"
-          invoke "$transfer" register_asset --denom XLM --address "$native" --voucher false
+            native="$(stellar contract id asset --asset native)"
+            invoke "$transfer" register_asset --denom XLM --address "$native" --voucher false
 
-          {
-            echo "## Deployed to Stellar testnet"
-            echo
-            echo "| Contract | Kind | Value |"
-            echo "|---|---|---|"
-            while IFS=$'\t' read -r name kind value; do
-              echo "| $name | $kind | \`$value\` |"
-            done < "$records"
-            echo
-            echo "The router registers \`07-tendermint\` and \`sepolia\` as client types, and \`transfer\` and \`gmpport\` as ports. The transfer app registers native XLM under the denom \`XLM\`."
-          } > deployment/deployments.md
+            {
+              printf '%s\t%s\n' stellar_ibc_router.wasm "$router"
+              printf '%s\t%s\n' stellar_ibc_transfer.wasm "$transfer"
+              printf '%s\t%s\n' stellar_ibc_gmp.wasm "$gmp"
+              printf '%s\t%s\n' stellar_tendermint_light_client.wasm "$tendermint"
+              printf '%s\t%s\n' stellar_sp1_ethereum_light_client.wasm "$ethereum"
+            } > "$deployed"
 
-          jq -Rn --arg tag "$TAG" --arg network testnet '
-            [inputs | split("\t") | {name: .[0], kind: .[1], value: .[2]}]
-            | {tag: $tag, network: $network, deployments: .}
-          ' < "$records" > deployment/deployments.json
+            bash .github/scripts/release-report.sh \
+              --current dist/SHA256SUMS --previous prev/SHA256SUMS \
+              --tag "$TAG" --network testnet --mode full --router "$router" \
+              --addresses "$deployed" \
+              --md deployment/deployments.md --json deployment/deployments.json
+          else
+            if [ -z "$ROUTER" ]; then
+              echo "::error::the testnet environment has no ROUTER_ADDRESS variable; set it to the live router, or run with deploy_router to deploy a fresh set"
+              exit 1
+            fi
+
+            changed_lcs="$(jq -r '.contracts[] | select(.category == "light-client" and .changed) | .wasm' plan/plan.json)"
+            if [ -z "$changed_lcs" ]; then
+              echo "::notice::no light client changed since the previous release; nothing to deploy"
+            fi
+            for wasm in $changed_lcs; do
+              id="$(stellar contract deploy --wasm "dist/$wasm" -- --router "$ROUTER")"
+              printf '%s\t%s\n' "$wasm" "$id" >> "$deployed"
+              echo "::notice::deployed $wasm at $id with router $ROUTER as admin"
+            done
+
+            bash .github/scripts/release-report.sh \
+              --current dist/SHA256SUMS --previous prev/SHA256SUMS \
+              --tag "$TAG" --network testnet --mode incremental --router "$ROUTER" \
+              --addresses "$deployed" \
+              --md deployment/deployments.md --json deployment/deployments.json
+          fi
 
           cat deployment/deployments.md >> "$GITHUB_STEP_SUMMARY"
           echo "deployed=true" >> "$GITHUB_OUTPUT"
