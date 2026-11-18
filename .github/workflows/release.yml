@@ -278,9 +278,18 @@ jobs:
             esac
           }
 
-          # deploy a new light client and migrate its corridor onto it, in place
+          # the client type a light client wasm serves
+          client_type_for() {
+            case "$1" in
+              stellar_tendermint_light_client.wasm) printf '%s' "07-tendermint" ;;
+              stellar_sp1_ethereum_light_client.wasm) printf '%s' "sepolia" ;;
+            esac
+          }
+
+          # deploy a new light client, migrate its corridor onto it in place, and
+          # point its client type at it so new clients get the new code too
           migrate_corridor() {
-            local wasm="$1" cid="$2"
+            local wasm="$1" cid="$2" ctype="$3"
 
             local new_lc
             new_lc="$(stellar contract deploy --wasm "dist/$wasm" -- --router "$ROUTER")"
@@ -305,6 +314,11 @@ jobs:
               --consensus_state "$consensus_state" \
               --height "$height"
             echo "::notice::migrated $cid from $old_lc onto $new_lc at height $height"
+
+            invoke "$ROUTER" register_client_type \
+              --client_type "$ctype" \
+              --light_client_address "$new_lc"
+            echo "::notice::pointed client type $ctype at $new_lc so new clients use the new code"
 
             printf '%s\t%s\t%s\n' "$wasm" "$new_lc" "$cid" >> "$deployed"
           }
@@ -364,7 +378,7 @@ jobs:
             done
 
             for wasm in $changed_lcs; do
-              migrate_corridor "$wasm" "$(client_id_for "$wasm")"
+              migrate_corridor "$wasm" "$(client_id_for "$wasm")" "$(client_type_for "$wasm")"
             done
 
             bash .github/scripts/release-report.sh \
