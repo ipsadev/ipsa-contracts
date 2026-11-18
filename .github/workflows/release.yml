@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "existing tag to build and release (e.g. v0.1.0); leave empty with dry_run to rehearse the branch this runs from"
+        description: "the existing tag to build and release, e.g. v0.1.0. For a dry run, leave this blank and tick dry_run below instead."
         type: string
         required: false
         default: ""
       dry_run:
-        description: "run the checks, build the wasm, and print the hash table, but deploy and publish nothing"
+        description: "Dry run: build the wasm and print the hash table, deploying and publishing nothing. Tick this and leave tag blank."
         type: boolean
         required: false
         default: false
