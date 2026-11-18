@@ -97,6 +97,7 @@ if [ -z "$previous" ] || [ ! -s "$previous" ]; then
 fi
 
 rows=""
+addr_rows=""
 json_rows=""
 
 for entry in "${contracts[@]}"; do
@@ -150,6 +151,11 @@ for entry in "${contracts[@]}"; do
   rows="${rows}| $name | \`$hash\` | \`$prev_cell\` | $state | $action |
 "
 
+  if [ -n "$address" ]; then
+    addr_rows="${addr_rows}| $name | \`$address\` |
+"
+  fi
+
   json_rows="${json_rows}$(jq -nc \
     --arg name "$name" \
     --arg wasm "$wasm" \
@@ -183,6 +189,16 @@ if [ -n "$md_out" ]; then
     echo "|---|---|---|---|---|"
     printf '%s' "$rows"
     echo
+
+    if [ -n "$addr_rows" ]; then
+      echo "## Contract addresses"
+      echo
+      echo "| Contract | Address |"
+      echo "|---|---|"
+      printf '%s' "$addr_rows"
+      echo
+    fi
+
     if [ "$mode" = "full" ]; then
       echo "This release deployed a fresh full set of contracts and wired them. The addresses are in \`deployments.json\`."
     else

@@ -247,6 +247,9 @@ jobs:
           DEPLOY_ROUTER: ${{ inputs.deploy_router }}
           TENDERMINT_CLIENT_ID: ${{ vars.TENDERMINT_CLIENT_ID }}
           SEPOLIA_CLIENT_ID: ${{ vars.SEPOLIA_CLIENT_ID }}
+          TRANSFER_ADDRESS: ${{ vars.TRANSFER_ADDRESS }}
+          GMP_ADDRESS: ${{ vars.GMP_ADDRESS }}
+          FAST_FILL_ADDRESS: ${{ vars.FAST_FILL_ADDRESS }}
         run: |
           set -euo pipefail
 
@@ -268,6 +271,27 @@ jobs:
           read_call() {
             local id="$1"; shift
             stellar contract invoke --id "$id" --send=no -- "$@" | jq -r .
+          }
+
+          # record a contract's address for the addresses table, unless already recorded
+          add_addr() {
+            local wasm="$1" addr="$2"
+            [ -n "$addr" ] && [ "$addr" != "null" ] || return 0
+            awk -F'\t' -v w="$wasm" '$1 == w {found = 1} END {exit !found}' "$deployed" && return 0
+            printf '%s\t%s\n' "$wasm" "$addr" >> "$deployed"
+          }
+
+          # the live addresses of the contracts a release does not deploy, so the
+          # notes carry a full address table alongside the hashes
+          record_live_addresses() {
+            add_addr stellar_ibc_router.wasm "$ROUTER"
+            add_addr stellar_ibc_transfer.wasm "$TRANSFER_ADDRESS"
+            add_addr stellar_ibc_gmp.wasm "$GMP_ADDRESS"
+            add_addr stellar_ibc_fast_fill.wasm "$FAST_FILL_ADDRESS"
+            add_addr stellar_tendermint_light_client.wasm \
+              "$(read_call "$ROUTER" light_client_address --client_id "${TENDERMINT_CLIENT_ID:-}" 2>/dev/null || true)"
+            add_addr stellar_sp1_ethereum_light_client.wasm \
+              "$(read_call "$ROUTER" light_client_address --client_id "${SEPOLIA_CLIENT_ID:-}" 2>/dev/null || true)"
           }
 
           # the corridor client id a light client wasm serves
@@ -380,6 +404,8 @@ jobs:
             for wasm in $changed_lcs; do
               migrate_corridor "$wasm" "$(client_id_for "$wasm")" "$(client_type_for "$wasm")"
             done
+
+            record_live_addresses
 
             bash .github/scripts/release-report.sh \
               --current dist/SHA256SUMS --previous prev/SHA256SUMS \
