@@ -66,7 +66,7 @@ contracts=(
   "ibc-router|stellar_ibc_router.wasm|router|"
   "ibc-transfer|stellar_ibc_transfer.wasm|app|"
   "ibc-gmp|stellar_ibc_gmp.wasm|app|"
-  "ibc-fast-fill|stellar_ibc_fast_fill.wasm|inactive|"
+  "ibc-fast-fill|stellar_ibc_fast_fill.wasm|app|"
   "tendermint light client|stellar_tendermint_light_client.wasm|light-client|"
   "sp1-ethereum light client|stellar_sp1_ethereum_light_client.wasm|light-client|--sp1"
   "ibc-voucher-token|stellar_ibc_voucher_token.wasm|code|"
