@@ -1,6 +1,7 @@
+use ipsa_smt::key_index;
 use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env};
 use stellar_ibc_router::{
-    smt::{key_index, remove_leaf, set_leaf, tree_root, SmtKey},
+    smt::{remove_leaf, set_leaf, tree_root, SmtKey},
     IbcRouter,
 };
 

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "light-clients/*",
+    "crates/smt",
     "ics23",
     "testing/light-client",
     "ibc-transfer",
@@ -31,6 +32,7 @@ ipsa = { version = "0.1.0", default-features = false }
 
 ipsa-test-light-client = { path = "testing/light-client" }
 ipsa-ics23 = { path = "ics23" }
+ipsa-smt = { path = "crates/smt" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
