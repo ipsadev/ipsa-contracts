@@ -1089,6 +1089,7 @@ dependencies = [
  "ipsa",
  "ipsa-gmp-account",
  "ipsa-ics23",
+ "ipsa-smt",
  "prost",
  "serde_json",
  "sha2 0.10.9",
@@ -1127,6 +1128,13 @@ dependencies = [
 
 [[package]]
 name = "ipsa-ics23"
+version = "0.2.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "ipsa-smt"
 version = "0.2.0"
 dependencies = [
  "soroban-sdk",
@@ -1976,6 +1984,7 @@ name = "stellar-ibc-router"
 version = "0.1.0"
 dependencies = [
  "ipsa",
+ "ipsa-smt",
  "soroban-sdk",
  "stellar-access",
  "stellar-macros",

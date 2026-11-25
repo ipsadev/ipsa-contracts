@@ -1,15 +1,13 @@
 [workspace]
 members = [
+    "crates/*",
     "light-clients/*",
-    "ics23",
+    "ibc-router",
     "ibc-transfer",
     "ibc-gmp",
     "ibc-fast-fill",
-    "gmp-account",
     "ibc-voucher-token",
-    "ibc-router",
-    "sp1-verifier",
-    "integration-tests"
+    "gmp-account"
 ]
 resolver = "2"
 
@@ -28,7 +26,8 @@ stellar-macros = "0.7.2"
 stellar-tokens = "0.7.2"
 ipsa = { version = "0.1.0", default-features = false }
 
-ipsa-ics23 = { path = "ics23" }
+ipsa-ics23 = { path = "crates/ics23" }
+ipsa-smt = { path = "crates/smt" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

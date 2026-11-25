@@ -1,6 +1,7 @@
+use ipsa_smt::{compute_root, empty};
 use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, Map};
 use stellar_ibc_router::{
-    smt::{compute_root, empty, tree_remove, tree_root, tree_set},
+    smt::{tree_remove, tree_root, tree_set},
     IbcRouter,
 };
 
