@@ -1,0 +1,17 @@
+[package]
+name = "ipsa-smt"
+description = "The 64-level sparse Merkle tree the IBC router keeps, with the storage interface the router implements"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
