@@ -12,17 +12,17 @@ doctest = false
 [dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 stellar-ibc-router = { path = "../../ibc-router" }
-stellar-ibc-transfer = { path = "../../ibc-transfer" }
-stellar-ibc-fast-fill = { path = "../../ibc-fast-fill" }
+stellar-ibc-transfer = { path = "../../ics20/ibc-transfer" }
+stellar-ibc-fast-fill = { path = "../../ics20/ibc-fast-fill" }
 stellar-tendermint-light-client = { path = "../../light-clients/tendermint" }
 ics23 = "0.12"
 prost = "0.13"
 sha2 = "0.10"
 
 [dev-dependencies]
-stellar-ibc-gmp = { path = "../../ibc-gmp" }
-stellar-ibc-voucher-token = { path = "../../ibc-voucher-token" }
-ipsa-gmp-account = { path = "../../gmp-account" }
+stellar-ibc-gmp = { path = "../../ics27/ibc-gmp" }
+stellar-ibc-voucher-token = { path = "../../ics20/ibc-voucher-token" }
+ipsa-gmp-account = { path = "../../ics27/gmp-account" }
 stellar-sp1-ethereum-light-client = { path = "../../light-clients/sp1-ethereum" }
 stellar-sp1-verifier = { path = "../sp1-verifier" }
 ipsa = { workspace = true, features = ["types", "gmp", "ics20"] }

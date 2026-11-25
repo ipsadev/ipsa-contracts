@@ -3,11 +3,8 @@ members = [
     "crates/*",
     "light-clients/*",
     "ibc-router",
-    "ibc-transfer",
-    "ibc-gmp",
-    "ibc-fast-fill",
-    "ibc-voucher-token",
-    "gmp-account"
+    "ics20/*",
+    "ics27/*"
 ]
 resolver = "2"
 
