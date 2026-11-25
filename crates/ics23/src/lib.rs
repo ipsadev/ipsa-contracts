@@ -254,6 +254,7 @@ fn is_left_neighbor(
     }
 }
 
+#[allow(clippy::manual_is_multiple_of)]
 fn inner_is_valid(spec: &ProofSpec, prefix: &Bytes, suffix: &Bytes, height: i64) -> bool {
     if prefix.get(0) == Some(LEAF_PREFIX) {
         return false;

@@ -10,7 +10,7 @@ default:
 # everything CI runs, in CI's order
 ci: fmt-check lint test audit
 
-# the contract wasm that tests import through contractimport!
+# the contract wasm the tests include as byte constants
 build:
     stellar contract build --profile contract
 

@@ -1082,6 +1082,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "integration-tests"
+version = "0.2.0"
+dependencies = [
+ "ics23",
+ "ipsa",
+ "ipsa-gmp-account",
+ "ipsa-ics23",
+ "ipsa-smt",
+ "prost",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3",
+ "soroban-sdk",
+ "stellar-ibc-fast-fill",
+ "stellar-ibc-gmp",
+ "stellar-ibc-router",
+ "stellar-ibc-transfer",
+ "stellar-ibc-voucher-token",
+ "stellar-sp1-ethereum-light-client",
+ "stellar-sp1-verifier",
+ "stellar-tendermint-light-client",
+ "tendermint",
+ "tendermint-proto",
+ "tendermint-testgen",
+]
+
+[[package]]
 name = "ipsa"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1103,23 +1130,12 @@ dependencies = [
 name = "ipsa-ics23"
 version = "0.2.0"
 dependencies = [
- "ics23",
- "prost",
- "serde_json",
- "sha2 0.10.9",
  "soroban-sdk",
 ]
 
 [[package]]
 name = "ipsa-smt"
 version = "0.2.0"
-dependencies = [
- "soroban-sdk",
-]
-
-[[package]]
-name = "ipsa-test-light-client"
-version = "0.1.0"
 dependencies = [
  "soroban-sdk",
 ]
@@ -1708,23 +1724,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "soroban-contracts-tests"
-version = "0.1.0"
-dependencies = [
- "ics23",
- "ipsa-test-light-client",
- "prost",
- "sha2 0.10.9",
- "soroban-sdk",
- "stellar-ibc-router",
- "stellar-ibc-transfer",
- "stellar-tendermint-light-client",
- "tendermint",
- "tendermint-proto",
- "tendermint-testgen",
-]
-
-[[package]]
 name = "soroban-env-common"
 version = "26.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1965,13 +1964,8 @@ name = "stellar-ibc-fast-fill"
 version = "0.1.0"
 dependencies = [
  "ipsa",
- "ipsa-test-light-client",
- "sha2 0.10.9",
- "sha3",
  "soroban-sdk",
  "stellar-access",
- "stellar-ibc-router",
- "stellar-ibc-transfer",
  "stellar-macros",
 ]
 
@@ -1980,10 +1974,8 @@ name = "stellar-ibc-gmp"
 version = "0.1.0"
 dependencies = [
  "ipsa",
- "ipsa-test-light-client",
  "soroban-sdk",
  "stellar-access",
- "stellar-ibc-router",
  "stellar-macros",
 ]
 
@@ -1993,7 +1985,6 @@ version = "0.1.0"
 dependencies = [
  "ipsa",
  "ipsa-smt",
- "ipsa-test-light-client",
  "soroban-sdk",
  "stellar-access",
  "stellar-macros",
@@ -2004,10 +1995,8 @@ name = "stellar-ibc-transfer"
 version = "0.1.0"
 dependencies = [
  "ipsa",
- "ipsa-test-light-client",
  "soroban-sdk",
  "stellar-access",
- "stellar-ibc-router",
  "stellar-macros",
 ]
 

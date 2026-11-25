@@ -1,17 +1,10 @@
 [workspace]
 members = [
+    "crates/*",
     "light-clients/*",
-    "crates/ics23",
-    "crates/smt",
-    "testing/light-client",
-    "ibc-transfer",
-    "ibc-gmp",
-    "ibc-fast-fill",
-    "gmp-account",
-    "ibc-voucher-token",
     "ibc-router",
-    "crates/sp1-verifier",
-    "tests"
+    "ics20/*",
+    "ics27/*"
 ]
 resolver = "2"
 
@@ -30,7 +23,6 @@ stellar-macros = "0.7.2"
 stellar-tokens = "0.7.2"
 ipsa = { version = "0.1.0", default-features = false }
 
-ipsa-test-light-client = { path = "testing/light-client" }
 ipsa-ics23 = { path = "crates/ics23" }
 ipsa-smt = { path = "crates/smt" }
 
