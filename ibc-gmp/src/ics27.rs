@@ -10,6 +10,7 @@ use crate::{
 };
 
 pub trait Ics27 {
+    #[allow(clippy::too_many_arguments)]
     fn send_call(
         env: Env,
         sender: Address,
@@ -25,6 +26,7 @@ pub trait Ics27 {
 
 #[contractimpl]
 impl Ics27 for IbcGmpApp {
+    #[allow(clippy::too_many_arguments)]
     fn send_call(
         env: Env,
         sender: Address,

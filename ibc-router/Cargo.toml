@@ -14,7 +14,3 @@ soroban-sdk = { workspace = true }
 stellar-access = { workspace = true }
 stellar-macros = { workspace = true }
 ipsa = { workspace = true, features = ["types"] }
-
-[dev-dependencies]
-soroban-sdk = { workspace = true, features = ["testutils"] }
-ipsa-test-light-client = { workspace = true }

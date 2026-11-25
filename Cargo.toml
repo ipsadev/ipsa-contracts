@@ -2,7 +2,6 @@
 members = [
     "light-clients/*",
     "ics23",
-    "testing/light-client",
     "ibc-transfer",
     "ibc-gmp",
     "ibc-fast-fill",
@@ -10,7 +9,7 @@ members = [
     "ibc-voucher-token",
     "ibc-router",
     "sp1-verifier",
-    "tests"
+    "integration-tests"
 ]
 resolver = "2"
 
@@ -29,7 +28,6 @@ stellar-macros = "0.7.2"
 stellar-tokens = "0.7.2"
 ipsa = { version = "0.1.0", default-features = false }
 
-ipsa-test-light-client = { path = "testing/light-client" }
 ipsa-ics23 = { path = "ics23" }
 
 [workspace.lints.rust]

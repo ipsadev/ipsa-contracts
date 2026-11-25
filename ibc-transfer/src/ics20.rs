@@ -50,6 +50,7 @@ impl IbcTransferApp {
 }
 
 pub trait Ics20 {
+    #[allow(clippy::too_many_arguments)]
     fn initiate_transfer(
         env: Env,
         sender: Address,
@@ -64,6 +65,7 @@ pub trait Ics20 {
 
 #[contractimpl]
 impl Ics20 for IbcTransferApp {
+    #[allow(clippy::too_many_arguments)]
     fn initiate_transfer(
         env: Env,
         sender: Address,
