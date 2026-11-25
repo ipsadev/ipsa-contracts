@@ -1,120 +1,196 @@
-use soroban_sdk::{Bytes, BytesN, Env, Map};
-use stellar_ibc_router::smt::{compute_root, empty, inner_hash, key_index, leaf_hash};
+use ipsa_smt::{empty, key_index, leaf_hash, Branch, Child};
+use soroban_sdk::{testutils::Address as _, xdr::ToXdr, Address, Bytes, BytesN, Env};
+use stellar_ibc_router::{smt, smt::SmtKey, IbcRouter, IbcRouterClient};
 
-fn leaf_set(env: &Env, entries: &[(&[u8], &[u8])]) -> Map<u64, BytesN<32>> {
-    let mut leaves: Map<u64, BytesN<32>> = Map::new(env);
-    for (k, v) in entries {
-        let key = Bytes::from_slice(env, k);
-        let value = Bytes::from_slice(env, v);
-        leaves.set(key_index(env, &key), leaf_hash(env, &key, &value));
-    }
-    leaves
-}
-
-#[test]
-fn an_empty_tree_has_a_zero_root() {
-    let env = Env::default();
-    assert_eq!(compute_root(&env, &Map::new(&env)), empty(&env));
-}
-
-#[test]
-fn empty_subtrees_collapse_to_zero() {
-    let env = Env::default();
-    let e = empty(&env);
-    assert_eq!(inner_hash(&env, &e, &e), e);
-    assert_ne!(
-        inner_hash(&env, &BytesN::from_array(&env, &[1u8; 32]), &e),
-        BytesN::from_array(&env, &[1u8; 32]),
-        "a lone child must still be folded, not passed through"
-    );
-}
-
-#[test]
-fn the_root_changes_with_the_value() {
-    let env = Env::default();
-    let a = compute_root(&env, &leaf_set(&env, &[(b"k", b"v1")]));
-    let b = compute_root(&env, &leaf_set(&env, &[(b"k", b"v2")]));
-    assert_ne!(a, b);
-}
-
-#[test]
-fn the_root_is_independent_of_insertion_order() {
-    let env = Env::default();
-    let a = leaf_set(&env, &[(b"a", b"1"), (b"b", b"2"), (b"c", b"3")]);
-    let b = leaf_set(&env, &[(b"c", b"3"), (b"a", b"1"), (b"b", b"2")]);
-    assert_eq!(compute_root(&env, &a), compute_root(&env, &b));
-}
-
-#[test]
-fn removing_the_only_leaf_returns_to_the_zero_root() {
-    let env = Env::default();
-    let full = leaf_set(&env, &[(b"k", b"v")]);
-    assert_ne!(compute_root(&env, &full), empty(&env));
-    assert_eq!(compute_root(&env, &Map::new(&env)), empty(&env));
-}
-
-fn v2_path(env: &Env, client: &str, discriminator: u8, sequence: u64) -> Bytes {
-    let mut key = client.as_bytes().to_vec();
-    key.push(discriminator);
-    key.extend_from_slice(&sequence.to_be_bytes());
-    Bytes::from_slice(env, &key)
-}
-
-fn hex32(hash: &BytesN<32>) -> std::string::String {
+fn hex(bytes: &Bytes) -> String {
     use core::fmt::Write;
-    let mut out = std::string::String::new();
-    for b in hash.to_array() {
-        let _ = write!(out, "{b:02x}");
+
+    let mut out = String::new();
+
+    for i in 0..bytes.len() {
+        let _ = write!(out, "{:02x}", bytes.get(i).unwrap());
     }
+
     out
 }
 
+fn deploy(env: &Env) -> (Address, IbcRouterClient<'static>) {
+    let owner = Address::generate(env);
+    let id = env.register(IbcRouter, (owner,));
+
+    (id.clone(), IbcRouterClient::new(env, &id))
+}
+
 #[test]
-fn shared_smt_vectors() {
+fn the_child_encoding_is_unchanged() {
     let env = Env::default();
 
-    let mut leaves: Map<u64, BytesN<32>> = Map::new(&env);
-    let commitment = v2_path(&env, "10-stellar-0", 0x01, 7);
-    let commitment_value = Bytes::from_slice(&env, &[0xABu8; 32]);
-    leaves.set(
-        key_index(&env, &commitment),
-        leaf_hash(&env, &commitment, &commitment_value),
+    assert_eq!(
+        hex(&Child::Leaf(7).to_xdr(&env)),
+        "0000001000000001000000020000000f000000044c656166000000050000000000000007"
     );
     assert_eq!(
-        hex32(&compute_root(&env, &leaves)),
-        "389440afec9968073f33047acc29c80207ba145947177b5bbe46edf836b6e666",
-        "one packet commitment"
-    );
-
-    let receipt = v2_path(&env, "10-stellar-0", 0x02, 7);
-    let receipt_value = Bytes::from_slice(&env, &[0x01u8]);
-    leaves.set(
-        key_index(&env, &receipt),
-        leaf_hash(&env, &receipt, &receipt_value),
-    );
-    let ack = v2_path(&env, "10-stellar-0", 0x03, 7);
-    let ack_value = Bytes::from_slice(&env, &[0xCDu8; 32]);
-    leaves.set(key_index(&env, &ack), leaf_hash(&env, &ack, &ack_value));
-
-    assert_eq!(
-        hex32(&compute_root(&env, &leaves)),
-        "5ec97edad72860f4a92fb862eba4a16b326f17c3fa3514eb031b4a081dd01391",
-        "commitment + receipt + ack"
+        hex(&Child::Node(5, 42).to_xdr(&env)),
+        "0000001000000001000000030000000f000000044e6f6465000000030000000500000005000000000000002a"
     );
 }
 
 #[test]
-fn leaf_hash_is_sha256_of_the_tagged_pair() {
+fn the_branch_encoding_is_unchanged() {
     let env = Env::default();
-    let key = Bytes::from_slice(&env, b"path");
-    let value = Bytes::from_slice(&env, b"value");
-
-    let mut expected = Bytes::from_slice(&env, &[0x00]);
-    expected.append(&env.crypto().sha256(&key).to_bytes().into());
-    expected.append(&env.crypto().sha256(&value).to_bytes().into());
+    let branch = Branch {
+        hash: BytesN::from_array(&env, &[0xab; 32]),
+        left: Child::Leaf(7),
+        right: Child::Node(5, 42),
+    };
 
     assert_eq!(
-        leaf_hash(&env, &key, &value),
-        env.crypto().sha256(&expected).to_bytes()
+        hex(&branch.to_xdr(&env)),
+        "0000001100000001000000030000000f00000004686173680000000d00000020\
+abababababababababababababababababababababababababababababababab\
+0000000f000000046c6566740000001000000001000000020000000f000000044c656166000000050000000000000007\
+0000000f0000000572696768740000000000001000000001000000030000000f000000044e6f6465000000030000000500000005000000000000002a"
+    );
+}
+
+#[test]
+fn the_storage_key_discriminants_are_unchanged() {
+    let env = Env::default();
+    let keys: [(SmtKey, &str); 5] = [
+        (SmtKey::Root, "Root"),
+        (SmtKey::Top, "Top"),
+        (SmtKey::Leaf(7), "Leaf"),
+        (SmtKey::Owner(7), "Owner"),
+        (SmtKey::Node(5, 42), "Node"),
+    ];
+
+    for (key, name) in keys {
+        let encoded = hex(&key.to_xdr(&env));
+        let tag = hex(&Bytes::from_slice(&env, name.as_bytes()));
+
+        assert!(
+            encoded.contains(&tag),
+            "{name} must stay the encoded discriminant"
+        );
+    }
+}
+
+#[test]
+fn a_committed_root_lags_the_tree_until_commit() {
+    let env = Env::default();
+    let (id, client) = deploy(&env);
+    let key = Bytes::from_slice(&env, b"10-stellar-0");
+    let value = Bytes::from_slice(&env, &[0xAB; 32]);
+
+    assert_eq!(client.ibc_root(), empty(&env));
+
+    env.as_contract(&id, || smt::set_leaf(&env, &key, &value));
+
+    assert_eq!(
+        client.ibc_root(),
+        empty(&env),
+        "writing a leaf does not move the committed root"
+    );
+
+    let committed = client.commit_root();
+
+    assert_ne!(committed, empty(&env));
+    assert_eq!(client.ibc_root(), committed);
+}
+
+#[test]
+fn the_committed_root_matches_the_leaf_hash_of_a_single_entry() {
+    let env = Env::default();
+    let (id, client) = deploy(&env);
+    let key = Bytes::from_slice(&env, b"10-stellar-0");
+    let value = Bytes::from_slice(&env, &[0xAB; 32]);
+
+    env.as_contract(&id, || smt::set_leaf(&env, &key, &value));
+    client.commit_root();
+
+    let expected = env.as_contract(&id, || {
+        let index = key_index(&env, &key);
+        let stored: BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&SmtKey::Leaf(index))
+            .unwrap();
+
+        stored
+    });
+
+    assert_eq!(expected, leaf_hash(&env, &key, &value));
+}
+
+#[test]
+fn removing_a_leaf_returns_the_committed_root_to_zero() {
+    let env = Env::default();
+    let (id, client) = deploy(&env);
+    let key = Bytes::from_slice(&env, b"10-stellar-0");
+    let value = Bytes::from_slice(&env, &[0xAB; 32]);
+
+    env.as_contract(&id, || smt::set_leaf(&env, &key, &value));
+    assert_ne!(client.commit_root(), empty(&env));
+
+    env.as_contract(&id, || smt::remove_leaf(&env, &key));
+
+    assert_eq!(client.commit_root(), empty(&env));
+}
+
+#[test]
+fn a_slot_owned_by_another_key_is_refused() {
+    let env = Env::default();
+    let (id, _client) = deploy(&env);
+    let key = Bytes::from_slice(&env, b"10-stellar-0");
+    let value = Bytes::from_slice(&env, &[0xAB; 32]);
+
+    let refused = env.as_contract(&id, || {
+        let index = key_index(&env, &key);
+        let stranger = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, b"another key"))
+            .to_bytes();
+
+        env.storage()
+            .persistent()
+            .set(&SmtKey::Owner(index), &stranger);
+
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            smt::set_leaf(&env, &key, &value)
+        }))
+        .is_err()
+    });
+
+    assert!(refused, "a key must not write over a slot another key owns");
+}
+
+#[test]
+fn a_stranger_cannot_remove_a_leaf_it_does_not_own() {
+    let env = Env::default();
+    let (id, client) = deploy(&env);
+    let key = Bytes::from_slice(&env, b"10-stellar-0");
+    let value = Bytes::from_slice(&env, &[0xAB; 32]);
+
+    env.as_contract(&id, || smt::set_leaf(&env, &key, &value));
+    let committed = client.commit_root();
+
+    env.as_contract(&id, || {
+        let index = key_index(&env, &key);
+        let stranger = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, b"another key"))
+            .to_bytes();
+
+        env.storage()
+            .persistent()
+            .set(&SmtKey::Owner(index), &stranger);
+
+        smt::remove_leaf(&env, &key);
+    });
+
+    assert_eq!(
+        client.commit_root(),
+        committed,
+        "the leaf stays when the remover does not own the slot"
     );
 }
