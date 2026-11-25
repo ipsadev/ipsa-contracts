@@ -1,4 +1,4 @@
-#[path = "../../ics23/tests/common/mod.rs"]
+#[path = "../../crates/ics23/tests/common/mod.rs"]
 #[allow(dead_code)]
 mod common;
 
