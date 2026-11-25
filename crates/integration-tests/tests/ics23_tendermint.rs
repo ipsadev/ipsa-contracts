@@ -1,6 +1,6 @@
-#[allow(dead_code)]
 use integration_tests::ics23::{
-    b, keys, membership_fixture, non_membership_fixture, store_keys, STORE,
+    absence_proof, b, exist_cp, keys, membership_fixture, merkle_bytes, non_membership_fixture,
+    receipt_key, receipts, store_keys, STORE,
 };
 use soroban_sdk::{testutils::Address as _, xdr::ToXdr, Bytes, BytesN, Env, String};
 use stellar_tendermint_light_client::{
@@ -77,6 +77,23 @@ fn membership_accepts_valid_two_layer_proof() {
 }
 
 #[test]
+fn membership_rejects_a_wrong_value() {
+    let env = Env::default();
+    let fixture = membership_fixture();
+    let (client, client_id) = setup(&env, fixture.root, 10);
+
+    let other_value = b(&env, &[0x02]);
+
+    assert!(!client.verify_membership(
+        &client_id,
+        &10,
+        &b(&env, &fixture.proof),
+        &store_keys(&env, &fixture.key),
+        &other_value
+    ));
+}
+
+#[test]
 fn membership_rejects_a_store_key_split_across_levels() {
     let env = Env::default();
     let f = membership_fixture();
@@ -136,6 +153,77 @@ fn non_membership_accepts_valid_absence_proof() {
     let (client, cid) = setup(&env, f.root, 10);
 
     assert!(client.verify_non_membership(&cid, &10, &b(&env, &f.proof), &store_keys(&env, &f.key)));
+}
+
+#[test]
+fn non_membership_rejects_a_present_key_between_its_neighbours() {
+    let env = Env::default();
+    let committed = receipts();
+    let present = receipt_key(3);
+    let (client, client_id) = setup(&env, committed.multistore.root, 10);
+
+    let membership = merkle_bytes(&[
+        exist_cp(committed.tree.proofs[1].clone()),
+        exist_cp(committed.multistore.proof.clone()),
+    ]);
+
+    assert!(
+        client.verify_membership(
+            &client_id,
+            &10,
+            &b(&env, &membership),
+            &store_keys(&env, &present),
+            &b(&env, &[0x01])
+        ),
+        "the client must hold this key for the absence claim below to mean anything"
+    );
+
+    let proof = absence_proof(&committed, &present, Some(0), Some(2));
+
+    assert!(!client.verify_non_membership(
+        &client_id,
+        &10,
+        &b(&env, &proof),
+        &store_keys(&env, &present)
+    ));
+}
+
+#[test]
+fn non_membership_rejects_a_present_key_with_a_lone_left_neighbour() {
+    let env = Env::default();
+    let committed = receipts();
+    let present = receipt_key(5);
+    let (client, client_id) = setup(&env, committed.multistore.root, 10);
+
+    assert_eq!(committed.keys[2], present);
+
+    let proof = absence_proof(&committed, &present, Some(1), None);
+
+    assert!(!client.verify_non_membership(
+        &client_id,
+        &10,
+        &b(&env, &proof),
+        &store_keys(&env, &present)
+    ));
+}
+
+#[test]
+fn non_membership_rejects_a_present_key_with_a_lone_right_neighbour() {
+    let env = Env::default();
+    let committed = receipts();
+    let present = receipt_key(5);
+    let (client, client_id) = setup(&env, committed.multistore.root, 10);
+
+    assert_eq!(committed.keys[2], present);
+
+    let proof = absence_proof(&committed, &present, None, Some(3));
+
+    assert!(!client.verify_non_membership(
+        &client_id,
+        &10,
+        &b(&env, &proof),
+        &store_keys(&env, &present)
+    ));
 }
 
 #[test]
