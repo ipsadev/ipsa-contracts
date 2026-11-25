@@ -12,9 +12,9 @@ ipsa's on-chain code: the Soroban contracts that make Stellar an IBC v2 chain. T
 | `gmp-account/` | `ipsa-gmp-account` | account the message passing app derives and deploys per (client, sender, salt), and calls through |
 | `testing/light-client/` | `ipsa-test-light-client` | always-accept light client for the tests only; a library with no `cdylib`, so it is never built to wasm or released |
 | `light-clients/tendermint/` | `stellar-tendermint-light-client` | Tendermint light client: signed-header verification, with ICS-23 proofs from `ipsa-ics23` |
-| `ics23/` | `ipsa-ics23` | ICS-23 membership and non-membership proofs for a Cosmos SDK chain, one key per proof level; a library, not a contract |
+| `crates/ics23/` | `ipsa-ics23` | ICS-23 membership and non-membership proofs for a Cosmos SDK chain, one key per proof level; a library, not a contract |
 | `light-clients/sp1-ethereum/` | `stellar-sp1-ethereum-light-client` | Ethereum light client: SP1 proofs of the sync committee and of the router's storage, client type `sepolia` |
-| `sp1-verifier/` | `stellar-sp1-verifier` | Groth16 verification of SP1 proofs on BN254 |
+| `crates/sp1-verifier/` | `stellar-sp1-verifier` | Groth16 verification of SP1 proofs on BN254 |
 | `tests/` | `soroban-contracts-tests` | cross-contract integration tests, one file per area under `tests/tests/` (end to end transfer, Tendermint headers, and ICS-23 proofs through the router and the Tendermint client) |
 
 Every contract crate is `crate-type = ["lib", "cdylib"]`, so each works both as
